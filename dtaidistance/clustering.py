@@ -17,6 +17,7 @@ import numpy as np
 
 from .util import SeriesContainer
 from  .quantizer import *
+from enum import Enum
 
 try:
     from tqdm import tqdm
@@ -78,15 +79,21 @@ def completeLinkageUpdater(dists, i1, i2, realValueMatrix=None):
 
 
 
+class QuantizerUsage(Enum):
+    ONLY_APPROXIMATES = 1
+    TOP_K = 2  #means the lowest K values will be recalculated
+
+
 class HierarchicalWithQuantizer:
     """Hierarchical clustering.
 
     Note: This method first computes the entire distance matrix. This is not ideal for extremely large
     data sets.
 
-    :param dists_fun: Function to compute pairwise distance matrix between set of series.
+    :param dists_fun: Function to compute distance between two series.
     :param dists_options: Arguments to pass to dists_fun.
     :param max_dist: Do not merge or cluster series that are further apart than this.
+    :param min_clusters: Stop merging once a minimum amount of clusters is reached
     :param merge_hook: Function that is called when two series are clustered.
         The function definition is `def merge_hook(from_idx, to_idx, distance)`, where idx is the index of the series.
     :param order_hook: Function that is called to decide on the next idx out of all shortest distances
@@ -94,20 +101,31 @@ class HierarchicalWithQuantizer:
     :param dists_merger: Updater for the distance matrix after a merge, 
         The function should take the data, the index of the 1st element and the index
         of the element that is merged into the first element 
+    :param vq_params: Array of ProductQuantizerParameters
+    :param quantizer_usage: param of type QuantizerUsage 
+    :param quatisation_ratio: Part of the data used to train the quantizer
+    :param seed: seed for random selection for quantizer
+    :param k: amount of lowest values in distance approcimation to calculate accurately
     """
 
-    def __init__(self, dists_fun, dists_options, max_dist=np.inf,
+    def __init__(self, dists_fun, dists_options, max_dist=np.inf, min_clusters=0,
                  merge_hook=None, order_hook=None, show_progress=True,
-                 dists_merger=None, vqParams=[ProductQuantiserParameters(10,10,5)], quatisationRatio=0.2):
+                 dists_merger=None, vq_params=[ProductQuantiserParameters(10,10,5)], 
+                 quantizer_usage = QuantizerUsage.ONLY_APPROXIMATES, quatisation_ratio=0.2,
+                 seed = 0, k = 10):
         self.dists_fun = dists_fun
         self.dists_options = dists_options
         self.max_dist = max_dist
+        self.min_clusters = min_clusters
         self.merge_hook = merge_hook
         self.order_hook = order_hook
         self.show_progress = show_progress
         self.dists_merger = dists_merger
-        self.vqParams = vqParams
-        self.quatisationRatio=quatisationRatio
+        self.vq_params = vq_params
+        self.quantizer_usage = quantizer_usage
+        self.quatisation_ratio=quatisation_ratio
+        self.k = k
+        self.seed = seed
 
 
     def fit(self, series):
@@ -117,9 +135,18 @@ class HierarchicalWithQuantizer:
         :return: Dictionary with as keys the prototype indicices and as values all the indicides of the series in
             that cluster.
         """
+
         nb_series = len(series)
+
+        import random
+        nb_clusters = nb_series
+        nb_samples=self.quatisation_ratio*nb_series
+        samples = [ random.randint(0, int(nb_series)-1) for i in range(0,int(nb_samples))]
+
+        quantizer = ProductQuantizer(series[samples,:],self.vq_params)
+
         cluster_idx = dict()
-        dists = self.dists_fun(series, **self.dists_options)
+        dists = quantizer.constructApproximateDTWDistanceMatrix(series)
         min_value = np.min(dists)
         min_idxs = np.argwhere(dists == min_value)
         if self.order_hook:
@@ -134,7 +161,7 @@ class HierarchicalWithQuantizer:
         else:
             pbar = None
         # Hierarchical clustering (distance to prototype)
-        while min_value <= self.max_dist:
+        while min_value <= self.max_dist and nb_clusters > self.min_clusters:
             cnt_merge += 1
             i1, i2 = int(min_idx[0]), int(min_idx[1])
             if self.merge_hook:
@@ -171,6 +198,7 @@ class HierarchicalWithQuantizer:
                 min_idx = self.order_hook(min_idxs)
             else:
                 min_idx = min_idxs[0, :]
+            nb_clusters = nb_clusters - 1
         if pbar:
             pbar.update(dists.shape[0] - cnt_merge)
 

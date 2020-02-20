@@ -178,7 +178,7 @@ class ProductQuantizer():
             for i in range(1,self.nrDictionaries):
                 codedData[:, i] = codedData[:, i]+self.params.dictionarySize*i
 
-        print(codedData)
+
         return codedData
 
     def calculateApprDTWDistanceForCodes(self, code1, code2, data1, data2):
