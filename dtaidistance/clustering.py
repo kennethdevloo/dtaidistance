@@ -16,6 +16,7 @@ from collections import deque
 import numpy as np
 
 from .util import SeriesContainer
+from  .quantizer import *
 
 try:
     from tqdm import tqdm
@@ -24,6 +25,162 @@ except ImportError:
 
 
 logger = logging.getLogger("be.kuleuven.dtai.distance")
+
+
+def singleLinkageUpdater(dists, i1, i2, realValueMatrix=None):
+    
+    for r in range(i2):
+        if r>i1:
+            dists[i1,r] = min(dists[i1, r], dists[r, i2])
+            if realValueMatrix is not None:
+                realValueMatrix[i1,r] = realValueMatrix[i1,r] and realValueMatrix[r,i2]  
+        elif r <i1:
+            dists[r,i1] = min(dists[r, i1], dists[r, i2])
+            if realValueMatrix is not None:
+                realValueMatrix[r,i1] = realValueMatrix[r,i1] and realValueMatrix[r,i2]
+        dists[r, i2] = np.inf
+    
+    for c in range(i2 + 1, dists.shape[0]):
+        if c>i1:
+            dists[i1,c] = min(dists[i1, c], dists[i2, c])
+            if realValueMatrix is not None:
+                realValueMatrix[i1,c] = realValueMatrix[i1,c] and realValueMatrix[i2,c]  
+        elif c >i1: 
+            dists[c,i1] = min(dists[c, i1], dists[i2, c])
+            if realValueMatrix is not None:
+                realValueMatrix[c,i1] = realValueMatrix[c,i1] and realValueMatrix[i2,c]  
+        dists[i2, c] = np.inf
+
+
+def completeLinkageUpdater(dists, i1, i2, realValueMatrix=None):
+    for r in range(i2):
+        if r>i1:
+            dists[i1,r] = max(dists[i1, r], dists[r, i2])
+            if realValueMatrix is not None:
+                realValueMatrix[i1,r] = realValueMatrix[i1,r] and realValueMatrix[r,i2]  
+        elif r <i1:
+            dists[r,i1] = max(dists[r, i1], dists[r, i2])
+            if realValueMatrix is not None:
+                realValueMatrix[r,i1] = realValueMatrix[r,i1] and realValueMatrix[r,i2]
+        dists[r, i2] = np.inf
+    
+    for c in range(i2 + 1, dists.shape[0]):
+        if c>i1:
+            dists[i1,c] = max(dists[i1, c], dists[i2, c])
+            if realValueMatrix is not None:
+                realValueMatrix[i1,c] = realValueMatrix[i1,c] and realValueMatrix[i2,c]  
+        elif c >i1: 
+            dists[c,i1] = max(dists[c, i1], dists[i2, c])
+            if realValueMatrix is not None:
+                realValueMatrix[c,i1] = realValueMatrix[c,i1] and realValueMatrix[i2,c]  
+        dists[i2, c] = np.inf
+
+
+
+
+class HierarchicalWithQuantizer:
+    """Hierarchical clustering.
+
+    Note: This method first computes the entire distance matrix. This is not ideal for extremely large
+    data sets.
+
+    :param dists_fun: Function to compute pairwise distance matrix between set of series.
+    :param dists_options: Arguments to pass to dists_fun.
+    :param max_dist: Do not merge or cluster series that are further apart than this.
+    :param merge_hook: Function that is called when two series are clustered.
+        The function definition is `def merge_hook(from_idx, to_idx, distance)`, where idx is the index of the series.
+    :param order_hook: Function that is called to decide on the next idx out of all shortest distances
+    :param show_progress: Use a tqdm progress bar
+    :param dists_merger: Updater for the distance matrix after a merge, 
+        The function should take the data, the index of the 1st element and the index
+        of the element that is merged into the first element 
+    """
+
+    def __init__(self, dists_fun, dists_options, max_dist=np.inf,
+                 merge_hook=None, order_hook=None, show_progress=True,
+                 dists_merger=None, vqParams=[ProductQuantiserParameters(10,10,5)], quatisationRatio=0.2):
+        self.dists_fun = dists_fun
+        self.dists_options = dists_options
+        self.max_dist = max_dist
+        self.merge_hook = merge_hook
+        self.order_hook = order_hook
+        self.show_progress = show_progress
+        self.dists_merger = dists_merger
+        self.vqParams = vqParams
+        self.quatisationRatio=quatisationRatio
+
+
+    def fit(self, series):
+        """Merge sequences.
+
+        :param series: Iterator over series.
+        :return: Dictionary with as keys the prototype indicices and as values all the indicides of the series in
+            that cluster.
+        """
+        nb_series = len(series)
+        cluster_idx = dict()
+        dists = self.dists_fun(series, **self.dists_options)
+        min_value = np.min(dists)
+        min_idxs = np.argwhere(dists == min_value)
+        if self.order_hook:
+            min_idx = self.order_hook(min_idxs)
+        else:
+            min_idx = min_idxs[0, :]
+        deleted = set()
+        cnt_merge = 0
+        logger.debug('Merging patterns')
+        if self.show_progress and tqdm:
+            pbar = tqdm(total=dists.shape[0])
+        else:
+            pbar = None
+        # Hierarchical clustering (distance to prototype)
+        while min_value <= self.max_dist:
+            cnt_merge += 1
+            i1, i2 = int(min_idx[0]), int(min_idx[1])
+            if self.merge_hook:
+                result = self.merge_hook(i2, i1, min_value)
+                if result:
+                    i1, i2 = result
+            logger.debug("Merge {} <- {} ({:.3f})".format(i1, i2, min_value))
+            if i1 not in cluster_idx:
+                cluster_idx[i1] = {i1}
+            if i2 in cluster_idx:
+                cluster_idx[i1].update(cluster_idx[i2])
+                del cluster_idx[i2]
+            else:
+                cluster_idx[i1].add(i2)
+            if self.dists_merger is None:
+                for r in range(i2):
+                    dists[r, i2] = np.inf
+                for c in range(i2 + 1, len(series)):
+                    dists[i2, c] = np.inf
+            else:
+                self.dists_merger(dists, i1, i2)
+            deleted.add(i2)
+            if len(deleted) == nb_series - 1:
+                break
+            if pbar:
+                pbar.update(1)
+            # min_idx = np.unravel_index(np.argmin(dists), dists.shape)
+            # min_value = diosts[min_idx]
+            min_value = np.min(dists)
+            # if np.isinf(min_value):
+            #     break
+            min_idxs = np.argwhere(dists == min_value)
+            if self.order_hook:
+                min_idx = self.order_hook(min_idxs)
+            else:
+                min_idx = min_idxs[0, :]
+        if pbar:
+            pbar.update(dists.shape[0] - cnt_merge)
+
+        prototypes = []
+        for i in range(len(series)):
+            if i not in deleted:
+                prototypes.append(i)
+                if i not in cluster_idx:
+                    cluster_idx[i] = set(i)
+        return cluster_idx
 
 
 class Hierarchical:
@@ -39,16 +196,22 @@ class Hierarchical:
         The function definition is `def merge_hook(from_idx, to_idx, distance)`, where idx is the index of the series.
     :param order_hook: Function that is called to decide on the next idx out of all shortest distances
     :param show_progress: Use a tqdm progress bar
+    :param dists_merger: Updater for the distance matrix after a merge, 
+        The function should take the data, the index of the 1st element and the index
+        of the element that is merged into the first element 
     """
 
     def __init__(self, dists_fun, dists_options, max_dist=np.inf,
-                 merge_hook=None, order_hook=None, show_progress=True):
+                 merge_hook=None, order_hook=None, show_progress=True,
+                 dists_merger=None):
         self.dists_fun = dists_fun
         self.dists_options = dists_options
         self.max_dist = max_dist
         self.merge_hook = merge_hook
         self.order_hook = order_hook
         self.show_progress = show_progress
+        self.dists_merger = dists_merger
+
 
     def fit(self, series):
         """Merge sequences.
@@ -96,17 +259,20 @@ class Hierarchical:
             #     for c in range(i1+1, len(cur_seqs)):
             #         if c not in deleted and abs(len(cur_seqs[i1]) - len(cur_seqs[c])) <= max_length_diff:
             #             dists[i1, c] = self.dist(cur_seqs[i1], cur_seqs[c], **dist_opts)
-            for r in range(i2):
-                dists[r, i2] = np.inf
-            for c in range(i2 + 1, len(series)):
-                dists[i2, c] = np.inf
+            if self.dists_merger is None:
+                for r in range(i2):
+                    dists[r, i2] = np.inf
+                for c in range(i2 + 1, len(series)):
+                    dists[i2, c] = np.inf
+            else:
+                self.dists_merger(dists, i1, i2)
             deleted.add(i2)
             if len(deleted) == nb_series - 1:
                 break
             if pbar:
                 pbar.update(1)
             # min_idx = np.unravel_index(np.argmin(dists), dists.shape)
-            # min_value = dists[min_idx]
+            # min_value = diosts[min_idx]
             min_value = np.min(dists)
             # if np.isinf(min_value):
             #     break

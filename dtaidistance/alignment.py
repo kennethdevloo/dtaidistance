@@ -13,12 +13,56 @@ Sequence alignment (e.g. Needleman–Wunsch).
 import logging
 import math
 import numpy as np
+from .dtw import distance
 
 from .dp import dp
 
 
+
+class Needleman_wunsch_default():
+    def __init__(self):
+        pass
+
+    def getDistance(self, v1, v2):
+        """Needleman-Wunsch
+
+        Match: +1 -> -1
+        Mismatch or Indel: −1 -> +1
+
+        The values are reversed because our general dynamic programming algorithm
+        selects the minimal value instead of the maximal value.
+        """
+        d_indel = 1  # gap / indel
+        if v1 == v2:
+            d = -1  # match
+        else:
+            d = 1  # mismatch
+        return d, d_indel
+
+class SparseSubstitutionMatrix():
+    def __init__(self, data, window = None, psi = None):
+        #note that in PQ case, the data consists off all the centres
+        self.data =data
+        self.distances = np.full((data.shape[0], data.shape[0]),np.inf)
+        self.window=window
+        self.psi=psi
+
+    def getDistance(self, el1, el2):
+        low = int(min(el1, el2))
+        high = int(max(el1, el2))
+        if self.distances[low, high] == np.inf:
+            self.distances[low, high]=distance(self.data[low,:], self.data[high,:], 
+            window=self.window, psi =self.psi)
+
+        d = (self.distances[low, high])**2
+        d_indel=d
+        return d, d_indel
+        
+        
+
 def needleman_wunsch(s1, s2, window=None, max_dist=None,
-                     max_step=None, max_length_diff=None, psi=None):
+                     max_step=None, max_length_diff=None, psi=None,
+                     substitutionMatrix=Needleman_wunsch_default()):
     """Needleman-Wunsch global sequence alignment.
 
     Example:
@@ -41,28 +85,13 @@ def needleman_wunsch(s1, s2, window=None, max_dist=None,
 
     """
     value, matrix = dp(s1, s2,
-                       _needleman_wunsch_fn, border=_needleman_wunsch_border,
-                       penalty=0, window=window, max_dist=max_dist,
-                       max_step=max_step, max_length_diff=max_length_diff, psi=psi)
+                    substitutionMatrix, border=_needleman_wunsch_border,
+                    penalty=0, window=window, max_dist=max_dist,
+                    max_step=max_step, max_length_diff=max_length_diff, psi=psi)
     matrix = -matrix
     return value, matrix
 
 
-def _needleman_wunsch_fn(v1, v2):
-    """Needleman-Wunsch
-
-    Match: +1 -> -1
-    Mismatch or Indel: −1 -> +1
-
-    The values are reversed because our general dynamic programming algorithm
-    selects the minimal value instead of the maximal value.
-    """
-    d_indel = 1  # gap / indel
-    if v1 == v2:
-        d = -1  # match
-    else:
-        d = 1  # mismatch
-    return d, d_indel
 
 
 def _needleman_wunsch_border(ri, ci):

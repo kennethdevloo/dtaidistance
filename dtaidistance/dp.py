@@ -71,7 +71,7 @@ def dp(s1, s2, fn, border=None, window=None, max_dist=None,
         i0 = i
         i1 = i + 1
         for j in range(max(0, i - max(0, r - c) - window + 1), min(c, i + max(0, c - r) + window)):
-            d, d_indel = fn(s1[i], s2[j])
+            d, d_indel = fn.getDistance(s1[i], s2[j])
             if max_step is not None:
                 if d > max_step:
                     d = np.inf
