@@ -11,6 +11,10 @@ from matplotlib import pyplot as plt
 
 from tslearn.clustering import TimeSeriesKMeans
 
+class SubsetSelectionType(Enum):
+    NO_OVERLAP = 1
+    DOUBLE_OVERLAP=2
+
 class Metric(Enum):
     DTW=0
     ED=1   #ONLY CLUSTERING IMPLEMENTED ATM, not distance, perfect for upperbounds
@@ -32,7 +36,8 @@ class clusterType(Enum):
 class ProductQuantiserParameters():
     def __init__(self, subsetSize, dictionarySize, windowSize,psi=None, 
     withIndex=False, residuals=False, distanceMetric = Metric.DTW, 
-    quantizerType=QuantizerType.PQDICT, nwWindowSize=None):
+    quantizerType=QuantizerType.PQDICT, nwWindowSize=None,
+    subsetType = SubsetSelectionType.NO_OVERLAP):
         self.subsetSize=subsetSize
         self.dictionarySize=dictionarySize
         self.windowSize=windowSize
@@ -42,6 +47,7 @@ class ProductQuantiserParameters():
         self.quantizerType=quantizerType
         self.psi = psi
         self.nwWindowSize=nwWindowSize
+        self.subsetType=subsetType
 
 
 
@@ -103,7 +109,7 @@ class PQDictionary():
                 data = data - self.avg
 
 
-                if params.withIndex or self.recursiveLayer:
+                if self.params.withIndex or self.recursiveLayer:
                     predictions = self.kmeans.predict(data)
                     self.index=[]
                     for i in range(0,self.params.dictionarySize):
@@ -143,15 +149,21 @@ class PQDictionary():
 
 
 class ProductQuantizer():
-
     def __init__(self,data, pqParams, depth=0):
         self.nrDictionaries = math.ceil(data.shape[1]/pqParams[depth].subsetSize) 
         self.dictionaries = []
         self.subsetSize = pqParams[depth].subsetSize
         self.params=pqParams[depth]
-        for i in range(0,self.nrDictionaries):
-            self.dictionaries.append(PQDictionary(data[:,i*self.subsetSize:min((i+1)*self.subsetSize,data.shape[1])],pqParams, depth)) 
-        
+        if self.params.subsetType is SubsetSelectionType.NO_OVERLAP:
+            for i in range(0,self.nrDictionaries):
+                self.dictionaries.append(PQDictionary(data[:,i*self.subsetSize:min((i+1)*self.subsetSize,data.shape[1])],pqParams, depth)) 
+        else:
+            self.dictionaries.append(PQDictionary(data[:,0*self.subsetSize:min((0+1)*self.subsetSize,data.shape[1])],pqParams, depth))
+            self.halfSubsetSize=int(self.subsetSize/2)
+            for i in range(1,self.nrDictionaries):
+                self.dictionaries.append(PQDictionary(data[:,(i*self.subsetSize-self.halfSubsetSize):min((i+1)*self.subsetSize-self.halfSubsetSize,data.shape[1])],pqParams, depth))
+                self.dictionaries.append(PQDictionary(data[:,i*self.subsetSize:min((i+1)*self.subsetSize,data.shape[1])],pqParams, depth)) 
+
         if pqParams[depth].quantizerType==QuantizerType.PQNeedlemanWunsch or pqParams[depth].quantizerType==QuantizerType.VQNeedlemanWunsch:
             codeBook=self.dictionaries[0].codeBook
             for i in range(1, self.nrDictionaries):
@@ -164,15 +176,29 @@ class ProductQuantizer():
 
 
     def retrieveCodedData(self, data):
-        codedData = np.zeros((data.shape[0],self.nrDictionaries))
+        codedData=None
+        if self.params.subsetType is SubsetSelectionType.NO_OVERLAP:
+            codedData = np.zeros((data.shape[0],self.nrDictionaries))
+        if self.params.subsetType is SubsetSelectionType.DOUBLE_OVERLAP:
+            codedData = np.zeros((data.shape[0],self.nrDictionaries*2-1))
         
-        if not self.params.quantizerType.VQNeedlemanWunsch:
-            for i in range(0,self.nrDictionaries):
-                codedData[:, i] = self.dictionaries.retrieveCodes(
-                    data[:,i*self.subsetSize:min((i+1)*self.subsetSize,data.shape[1])])
+        if self.params.quantizerType is not QuantizerType.VQNeedlemanWunsch:
+            if self.params.subsetType is SubsetSelectionType.NO_OVERLAP:
+                for i in range(0,self.nrDictionaries):
+                    codedData[:, i] = self.dictionaries[i].retrieveCodes(
+                        data[:,i*self.subsetSize:min((i+1)*self.subsetSize,data.shape[1])])
+            else:
+                codedData[:, 0] = self.dictionaries[0].retrieveCodes(
+                    data[:,0*self.subsetSize:min((0+1)*self.subsetSize,data.shape[1])])
+                for i in range(1,self.nrDictionaries):
+                    codedData[:, 2*i-1] = self.dictionaries[2*i-1].retrieveCodes(
+                        data[:,i*self.subsetSize-self.halfSubsetSize:min((i+1)*self.subsetSize-self.halfSubsetSize,data.shape[1])])
+                    codedData[:, 2*i] = self.dictionaries[2*i].retrieveCodes(
+                        data[:,i*self.subsetSize:min((i+1)*self.subsetSize,data.shape[1])])
+
         else:
             for i in range(0,self.nrDictionaries):
-                codedData[:, i] = self.dictionaries[i].retrieveCodes(
+                codedData[:, i] = self.dictionaries.retrieveCodes(
                     data[:,i*self.subsetSize:min((i+1)*self.subsetSize,data.shape[1])])
         if self.params.quantizerType==QuantizerType.PQNeedlemanWunsch:
             for i in range(1,self.nrDictionaries):
@@ -184,8 +210,11 @@ class ProductQuantizer():
     def calculateApprDTWDistanceForCodes(self, code1, code2, data1, data2):
         if self.params.quantizerType==QuantizerType.PQNeedlemanWunsch or self.params.quantizerType==QuantizerType.VQNeedlemanWunsch:
             distance,m =needleman_wunsch(code1, code2,substitutionMatrix=self.substitution, window=self.params.nwWindowSize)
-            print(np.sqrt(-m))
-            return np.sqrt(distance)
+            #print(np.sqrt(-m))
+            if self.params.subsetType is SubsetSelectionType.NO_OVERLAP:
+                return np.sqrt(distance)
+            else:
+                return np.sqrt(distance)*(self.nrDictionaries-1)/self.nrDictionaries
 
         distance = 0
         for i in range(0,code1.shape[0]):
@@ -195,8 +224,11 @@ class ProductQuantizer():
                     data2[i*self.subsetSize:min((i+1)*self.subsetSize,data2.shape[0])])**2
             else:
                 distance = distance + self.dictionaries[i].retrieveApprDTWDistance(code1[i], code2[i])**2
-     
-        return np.sqrt(distance)
+        
+        if self.params.subsetType is SubsetSelectionType.NO_OVERLAP:
+            return np.sqrt(distance)
+        else:
+            return np.sqrt(distance)*(self.nrDictionaries-1)/self.nrDictionaries
 
     def constructApproximateDTWDistanceMatrix(self, data):
         codedData = self.retrieveCodedData(data)
