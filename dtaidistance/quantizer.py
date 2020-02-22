@@ -72,7 +72,7 @@ class PQDictionary():
                 pass
             
             if params.quantizerType ==  QuantizerType.PQDICT:
-                self.distanceDTWMatrtix = distance_matrix_fast(self.codeBook, window=params.windowSize)
+                self.distanceDTWMatrtix = distance_matrix(self.codeBook, window=params.windowSize)
 
 
         if params.distanceMetric is Metric.DTW:

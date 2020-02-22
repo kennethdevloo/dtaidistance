@@ -112,7 +112,7 @@ class HierarchicalWithQuantizer:
                  merge_hook=None, order_hook=None, show_progress=True,
                  dists_merger=None, vq_params=[ProductQuantiserParameters(10,10,5)], 
                  quantizer_usage = QuantizerUsage.ONLY_APPROXIMATES, quatisation_ratio=0.2,
-                 seed = 0, k = 10):
+                 seed = None, k = 10):
         self.dists_fun = dists_fun
         self.dists_options = dists_options
         self.max_dist = max_dist
@@ -128,6 +128,7 @@ class HierarchicalWithQuantizer:
         self.seed = seed
 
 
+
     def fit(self, series):
         """Merge sequences.
 
@@ -139,6 +140,8 @@ class HierarchicalWithQuantizer:
         nb_series = len(series)
 
         import random
+        if self.seed is not None:
+            random.seed(self.seed)
         nb_clusters = nb_series
         nb_samples=self.quatisation_ratio*nb_series
         samples = [ random.randint(0, int(nb_series)-1) for i in range(0,int(nb_samples))]
@@ -207,7 +210,7 @@ class HierarchicalWithQuantizer:
             if i not in deleted:
                 prototypes.append(i)
                 if i not in cluster_idx:
-                    cluster_idx[i] = set(i)
+                    cluster_idx[i] = {i}
         return cluster_idx
 
 
@@ -220,6 +223,7 @@ class Hierarchical:
     :param dists_fun: Function to compute pairwise distance matrix between set of series.
     :param dists_options: Arguments to pass to dists_fun.
     :param max_dist: Do not merge or cluster series that are further apart than this.
+    :param min_clusters: Stop merging once a minimum amount of clusters is reached
     :param merge_hook: Function that is called when two series are clustered.
         The function definition is `def merge_hook(from_idx, to_idx, distance)`, where idx is the index of the series.
     :param order_hook: Function that is called to decide on the next idx out of all shortest distances
@@ -229,12 +233,13 @@ class Hierarchical:
         of the element that is merged into the first element 
     """
 
-    def __init__(self, dists_fun, dists_options, max_dist=np.inf,
+    def __init__(self, dists_fun, dists_options, max_dist=np.inf, min_clusters=0,
                  merge_hook=None, order_hook=None, show_progress=True,
                  dists_merger=None):
         self.dists_fun = dists_fun
         self.dists_options = dists_options
         self.max_dist = max_dist
+        self.min_clusters=min_clusters
         self.merge_hook = merge_hook
         self.order_hook = order_hook
         self.show_progress = show_progress
@@ -249,6 +254,7 @@ class Hierarchical:
             that cluster.
         """
         nb_series = len(series)
+        nb_clusters = nb_series
         cluster_idx = dict()
         dists = self.dists_fun(series, **self.dists_options)
         min_value = np.min(dists)
@@ -265,7 +271,8 @@ class Hierarchical:
         else:
             pbar = None
         # Hierarchical clustering (distance to prototype)
-        while min_value <= self.max_dist:
+        while min_value <= self.max_dist and nb_clusters > self.min_clusters:
+       
             cnt_merge += 1
             i1, i2 = int(min_idx[0]), int(min_idx[1])
             if self.merge_hook:
@@ -309,15 +316,17 @@ class Hierarchical:
                 min_idx = self.order_hook(min_idxs)
             else:
                 min_idx = min_idxs[0, :]
+            nb_clusters=nb_clusters-1
         if pbar:
             pbar.update(dists.shape[0] - cnt_merge)
+        
 
         prototypes = []
         for i in range(len(series)):
             if i not in deleted:
                 prototypes.append(i)
                 if i not in cluster_idx:
-                    cluster_idx[i] = set(i)
+                    cluster_idx[i] = {i}
         return cluster_idx
 
 
