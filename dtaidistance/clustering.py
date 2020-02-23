@@ -28,52 +28,36 @@ except ImportError:
 logger = logging.getLogger("be.kuleuven.dtai.distance")
 
 
-def singleLinkageUpdater(dists, i1, i2, realValueMatrix=None):
+def singleLinkageUpdater(dists, i1, i2):
     
     for r in range(i2):
         if r>i1:
             dists[i1,r] = min(dists[i1, r], dists[r, i2])
-            if realValueMatrix is not None:
-                realValueMatrix[i1,r] = realValueMatrix[i1,r] and realValueMatrix[r,i2]  
         elif r <i1:
             dists[r,i1] = min(dists[r, i1], dists[r, i2])
-            if realValueMatrix is not None:
-                realValueMatrix[r,i1] = realValueMatrix[r,i1] and realValueMatrix[r,i2]
         dists[r, i2] = np.inf
     
     for c in range(i2 + 1, dists.shape[0]):
         if c>i1:
             dists[i1,c] = min(dists[i1, c], dists[i2, c])
-            if realValueMatrix is not None:
-                realValueMatrix[i1,c] = realValueMatrix[i1,c] and realValueMatrix[i2,c]  
         elif c >i1: 
             dists[c,i1] = min(dists[c, i1], dists[i2, c])
-            if realValueMatrix is not None:
-                realValueMatrix[c,i1] = realValueMatrix[c,i1] and realValueMatrix[i2,c]  
         dists[i2, c] = np.inf
 
 
-def completeLinkageUpdater(dists, i1, i2, realValueMatrix=None):
+def completeLinkageUpdater(dists, i1, i2):
     for r in range(i2):
         if r>i1:
             dists[i1,r] = max(dists[i1, r], dists[r, i2])
-            if realValueMatrix is not None:
-                realValueMatrix[i1,r] = realValueMatrix[i1,r] and realValueMatrix[r,i2]  
         elif r <i1:
             dists[r,i1] = max(dists[r, i1], dists[r, i2])
-            if realValueMatrix is not None:
-                realValueMatrix[r,i1] = realValueMatrix[r,i1] and realValueMatrix[r,i2]
         dists[r, i2] = np.inf
     
     for c in range(i2 + 1, dists.shape[0]):
         if c>i1:
             dists[i1,c] = max(dists[i1, c], dists[i2, c])
-            if realValueMatrix is not None:
-                realValueMatrix[i1,c] = realValueMatrix[i1,c] and realValueMatrix[i2,c]  
         elif c >i1: 
             dists[c,i1] = max(dists[c, i1], dists[i2, c])
-            if realValueMatrix is not None:
-                realValueMatrix[c,i1] = realValueMatrix[c,i1] and realValueMatrix[i2,c]  
         dists[i2, c] = np.inf
 
 
@@ -82,6 +66,7 @@ def completeLinkageUpdater(dists, i1, i2, realValueMatrix=None):
 class QuantizerUsage(Enum):
     ONLY_APPROXIMATES = 1
     TOP_K = 2  #means the lowest K values will be recalculated
+    TOP_K_ONLY_AT_INITIALISATION = 3
 
 
 class HierarchicalWithQuantizer:
@@ -143,15 +128,45 @@ class HierarchicalWithQuantizer:
         if self.seed is not None:
             random.seed(self.seed)
         nb_clusters = nb_series
-        nb_samples=self.quatisation_ratio*nb_series
-        samples = [ random.randint(0, int(nb_series)-1) for i in range(0,int(nb_samples))]
+        nb_samples=int(min(nb_series,self.quatisation_ratio*nb_series))
+        indiceList = [ i for i in range(nb_series)]
+        random.shuffle(indiceList)
+        samples = indiceList[0:nb_samples]
 
         quantizer = ProductQuantizer(series[samples,:],self.vq_params)
 
+       # series= series[5:10,:]
+       # nb_clusters=len(series)
+       # nb_series = len(series)
+
         cluster_idx = dict()
         dists = quantizer.constructApproximateDTWDistanceMatrix(series)
-        min_value = np.min(dists)
-        min_idxs = np.argwhere(dists == min_value)
+        
+       # print (dists)
+
+        if self.quantizer_usage is QuantizerUsage.ONLY_APPROXIMATES:
+            min_value = np.min(dists)
+            min_idxs = np.argwhere(dists == min_value)
+        elif self.quantizer_usage is QuantizerUsage.TOP_K or self.quantizer_usage is QuantizerUsage.TOP_K_ONLY_AT_INITIALISATION:
+            idxs = np.argpartition(dists, self.k, axis = None)[0:self.k]
+            min_idxs = np.zeros((self.k, 2), np.int)
+            min_dists = np.zeros((self.k), np.float32)
+
+            for i in range(self.k):
+                min_idxs[i,0] = int(idxs[i]/dists.shape[1])
+                min_idxs[i,1] = int(idxs[i]%dists.shape[1])
+                if not (dists[min_idxs[i,0], min_idxs[i,1]] == np.inf):
+#                    print(series[min_idxs[i,0], :],series[min_idxs[i,1], :])
+                    dists[min_idxs[i,0], min_idxs[i,1]] = self.dists_fun(series[min_idxs[i,0], :],series[min_idxs[i,1], :],**self.dists_options)
+                    min_dists[i] = dists[min_idxs[i,0], min_idxs[i,1]]
+                else:
+                    min_dists[i] = np.inf
+            min_value = np.min(min_dists)
+            min_minidxs =  np.argwhere(min_dists == min_value)
+            min_idxs = min_idxs[min_minidxs, :]
+            min_idxs = min_idxs[0,:] 
+            #print(min_idxs, min_value,min_minidxs, min_dists)  
+
         if self.order_hook:
             min_idx = self.order_hook(min_idxs)
         else:
@@ -193,10 +208,36 @@ class HierarchicalWithQuantizer:
                 pbar.update(1)
             # min_idx = np.unravel_index(np.argmin(dists), dists.shape)
             # min_value = diosts[min_idx]
-            min_value = np.min(dists)
+            #min_value = np.min(dists)
             # if np.isinf(min_value):
             #     break
-            min_idxs = np.argwhere(dists == min_value)
+            #min_idxs = np.argwhere(dists == min_value)
+            if self.quantizer_usage is QuantizerUsage.ONLY_APPROXIMATES or self.quantizer_usage is QuantizerUsage.TOP_K_ONLY_AT_INITIALISATION:
+                min_value = np.min(dists)
+                min_idxs = np.argwhere(dists == min_value)
+            elif self.quantizer_usage is QuantizerUsage.TOP_K:
+               # print(dists)
+                idxs = np.argpartition(dists, self.k, axis = None)[0:self.k]
+                min_idxs = np.zeros((self.k, 2), np.int)
+                min_dists = np.zeros((self.k), np.float32)
+
+                for i in range(self.k):
+                    min_idxs[i,0] = int(math.floor(idxs[i]/dists.shape[1]))
+                    min_idxs[i,1] = int(idxs[i]%dists.shape[1])
+                    if not (dists[min_idxs[i,0], min_idxs[i,1]] == np.inf):
+    #                    print(series[min_idxs[i,0], :],series[min_idxs[i,1], :])
+                        dists[min_idxs[i,0], min_idxs[i,1]] = self.dists_fun(series[min_idxs[i,0], :],series[min_idxs[i,1], :],**self.dists_options)
+                        min_dists[i] = dists[min_idxs[i,0], min_idxs[i,1]]
+                        #print('dist',min_dists[i])
+                    else:
+                        min_dists[i] = np.inf
+                min_value = np.min(min_dists)
+                min_minidxs =  np.argwhere(min_dists == min_value)
+                min_idxs = min_idxs[min_minidxs, :]
+                min_idxs = min_idxs[0,:] 
+                #print(min_idxs, min_value,min_minidxs, min_dists)
+                #print(dists)
+
             if self.order_hook:
                 min_idx = self.order_hook(min_idxs)
             else:

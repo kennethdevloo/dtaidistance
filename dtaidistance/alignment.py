@@ -40,19 +40,20 @@ class Needleman_wunsch_default():
         return d, d_indel
 
 class SparseSubstitutionMatrix():
-    def __init__(self, data, window = None, psi = None):
+    def __init__(self, data, distParams = {}):
         #note that in PQ case, the data consists off all the centres
-        self.data =data
+        self.data =data #codebooks
         self.distances = np.full((data.shape[0], data.shape[0]),np.inf)
-        self.window=window
-        self.psi=psi
+        self.distParams = distParams
 
     def getDistance(self, el1, el2):
+        if el1 ==el2:
+            return 0,0
         low = int(min(el1, el2))
         high = int(max(el1, el2))
         if self.distances[low, high] == np.inf:
             self.distances[low, high]=distance(self.data[low,:], self.data[high,:], 
-            window=self.window, psi =self.psi)
+            **self.distParams)
 
         d = (self.distances[low, high])**2
         d_indel=d
