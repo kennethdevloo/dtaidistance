@@ -88,7 +88,7 @@ class HierarchicalWithQuantizer:
         of the element that is merged into the first element 
     :param vq_params: Array of ProductQuantizerParameters
     :param quantizer_usage: param of type QuantizerUsage 
-    :param quatisation_ratio: Part of the data used to train the quantizer
+    :param quantisation_ratio: Part of the data used to train the quantizer
     :param seed: seed for random selection for quantizer
     :param k: amount of lowest values in distance approcimation to calculate accurately
     """
@@ -96,7 +96,7 @@ class HierarchicalWithQuantizer:
     def __init__(self, dists_fun, dists_options, max_dist=np.inf, min_clusters=0,
                  merge_hook=None, order_hook=None, show_progress=True,
                  dists_merger=None, vq_params=[ProductQuantiserParameters(10,10,5)], 
-                 quantizer_usage = QuantizerUsage.ONLY_APPROXIMATES, quatisation_ratio=0.2,
+                 quantizer_usage = QuantizerUsage.ONLY_APPROXIMATES, quantisation_ratio=0.2,
                  seed = None, k = 10):
         self.dists_fun = dists_fun
         self.dists_options = dists_options
@@ -108,7 +108,7 @@ class HierarchicalWithQuantizer:
         self.dists_merger = dists_merger
         self.vq_params = vq_params
         self.quantizer_usage = quantizer_usage
-        self.quatisation_ratio=quatisation_ratio
+        self.quantisation_ratio=quantisation_ratio
         self.k = k
         self.seed = seed
 
@@ -128,7 +128,7 @@ class HierarchicalWithQuantizer:
         if self.seed is not None:
             random.seed(self.seed)
         nb_clusters = nb_series
-        nb_samples=int(min(nb_series,self.quatisation_ratio*nb_series))
+        nb_samples=int(min(nb_series,self.quantisation_ratio*nb_series))
         indiceList = [ i for i in range(nb_series)]
         random.shuffle(indiceList)
         samples = indiceList[0:nb_samples]
@@ -141,7 +141,8 @@ class HierarchicalWithQuantizer:
 
         cluster_idx = dict()
         dists = quantizer.constructApproximateDTWDistanceMatrix(series)
-        
+        realVal = np.zeros((dists.shape[0], dists.shape[1]), dtype=np.uint8)
+
        # print (dists)
 
         if self.quantizer_usage is QuantizerUsage.ONLY_APPROXIMATES:
@@ -157,7 +158,9 @@ class HierarchicalWithQuantizer:
                 min_idxs[i,1] = int(idxs[i]%dists.shape[1])
                 if not (dists[min_idxs[i,0], min_idxs[i,1]] == np.inf):
 #                    print(series[min_idxs[i,0], :],series[min_idxs[i,1], :])
-                    dists[min_idxs[i,0], min_idxs[i,1]] = self.dists_fun(series[min_idxs[i,0], :],series[min_idxs[i,1], :],**self.dists_options)
+                    if realVal[min_idxs[i,0], min_idxs[i,1]] == 0:
+                        dists[min_idxs[i,0], min_idxs[i,1]] = self.dists_fun(series[min_idxs[i,0], :],series[min_idxs[i,1], :],**self.dists_options)
+                        realVal[min_idxs[i,0], min_idxs[i,1]]=1
                     min_dists[i] = dists[min_idxs[i,0], min_idxs[i,1]]
                 else:
                     min_dists[i] = np.inf
@@ -226,7 +229,10 @@ class HierarchicalWithQuantizer:
                     min_idxs[i,1] = int(idxs[i]%dists.shape[1])
                     if not (dists[min_idxs[i,0], min_idxs[i,1]] == np.inf):
     #                    print(series[min_idxs[i,0], :],series[min_idxs[i,1], :])
-                        dists[min_idxs[i,0], min_idxs[i,1]] = self.dists_fun(series[min_idxs[i,0], :],series[min_idxs[i,1], :],**self.dists_options)
+                        
+                        if realVal[min_idxs[i,0], min_idxs[i,1]] == 0:
+                            dists[min_idxs[i,0], min_idxs[i,1]] = self.dists_fun(series[min_idxs[i,0], :],series[min_idxs[i,1], :],**self.dists_options)
+                            realVal[min_idxs[i,0], min_idxs[i,1]]=1
                         min_dists[i] = dists[min_idxs[i,0], min_idxs[i,1]]
                         #print('dist',min_dists[i])
                     else:
