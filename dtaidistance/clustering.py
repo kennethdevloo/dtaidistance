@@ -129,12 +129,13 @@ class HierarchicalWithQuantizer:
             random.seed(self.seed)
         nb_clusters = nb_series
         nb_samples=int(min(nb_series,self.quantisation_ratio*nb_series))
+       
         indiceList = [ i for i in range(nb_series)]
         random.shuffle(indiceList)
         samples = indiceList[0:nb_samples]
 
         quantizer = ProductQuantizer(series[samples,:],self.vq_params)
-
+        print('finished PQ')
        # series= series[5:10,:]
        # nb_clusters=len(series)
        # nb_series = len(series)
@@ -142,7 +143,7 @@ class HierarchicalWithQuantizer:
         cluster_idx = dict()
         dists = quantizer.constructApproximateDTWDistanceMatrix(series)
         realVal = np.zeros((dists.shape[0], dists.shape[1]), dtype=np.uint8)
-
+        print('finished distance approcimation')
        # print (dists)
 
         if self.quantizer_usage is QuantizerUsage.ONLY_APPROXIMATES:
@@ -258,6 +259,7 @@ class HierarchicalWithQuantizer:
                 prototypes.append(i)
                 if i not in cluster_idx:
                     cluster_idx[i] = {i}
+        print ('Finished PQ clustering')
         return cluster_idx
 
 
