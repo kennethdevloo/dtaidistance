@@ -37,7 +37,8 @@ class ProductQuantiserParameters():
     def __init__(self, subsetSize, dictionarySize, distParams={}, 
     withIndex=False, residuals=False, distanceMetric = Metric.DTW, 
     quantizerType=QuantizerType.PQDICT, nwDistParams = {},
-    subsetType = SubsetSelectionType.NO_OVERLAP):
+    subsetType = SubsetSelectionType.NO_OVERLAP, barycenterMaxIter=25,
+    max_iters=20):
         self.subsetSize=subsetSize
         self.dictionarySize=dictionarySize
         self.distParams= distParams
@@ -47,6 +48,8 @@ class ProductQuantiserParameters():
         self.quantizerType=quantizerType
         self.nwDistParams=nwDistParams
         self.subsetType=subsetType
+        self.barycenterMaxIter =barycenterMaxIter
+        self.max_iters=max_iters
 
 
 
@@ -73,7 +76,7 @@ class PQDictionary():
             if self.params.residuals:
                 #makes no sense to subtract mean from time series
                 pass        
-            self.kmeans = TimeSeriesKMeans(n_clusters=self.params.dictionarySize,random_state=0,metric="dtw",).fit(data)
+            self.kmeans = TimeSeriesKMeans(n_clusters=self.params.dictionarySize,random_state=0,metric="dtw", max_iter_barycenter=self.params.barycenterMaxIter, max_iter=self.params.max_iters).fit(data)
             self.codeBook = self.kmeans.cluster_centers_
             if self.params.withIndex or self.recursiveLayer:
                 predictions = self.kmeans.predict(data)
