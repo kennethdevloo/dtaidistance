@@ -326,8 +326,9 @@ def clusterEco200Test():
     print (clust)
 
 
-def distanceTest(X, Y, qParams, distParams, ratio = 0.5):
+def distanceTest(X, Y, qParams, distParams, ratio = 0.5, seed = 0):
     print('Init distance test')
+    random.seed(seed)
     
 
     #samples = [random.randint(0,X.shape[0]-1) for i in range(6)]
@@ -361,10 +362,14 @@ def clusterTest(X,Y, qParams, distParams, generalClusterParams, pqClusterParams 
     
 
     model2 = clustering.HierarchicalTree(model)
+    print('Fitting the approx model')
     cluster_idx = model2.fit(X)
+    print('Done fitting the approx model')
    
     model2N = clustering.HierarchicalTree(modelN)
+    print('Fitting the reference model')
     cluster_idxN = model2N.fit(X)
+    print('Done fitting the reference model')
 
     #model2.plot("~/hierarchy.jpg")
     #model2N.plot("~/hierarchy2.jpg")
