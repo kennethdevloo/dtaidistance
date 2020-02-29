@@ -111,10 +111,10 @@ def loadEcg200DataSets():
     return X_train_scaled, Y_train, X_test_scaled, Y_train
 
 def loadEcg200DataSetForClustering():
-    X_train = np.loadtxt('~/DTWtests/ECG200_TRAIN.txt')
+    X_train = np.loadtxt('ECG200_TRAIN.txt')
     Y_train = X_train[:,-1]
 
-    X_test = np.loadtxt('~/DTWtests/ECG200_TEST.txt')
+    X_test = np.loadtxt('ECG200_TEST.txt')
     X=np.concatenate((X_train, X_test))
 
     Y= X[:,-1]
@@ -199,13 +199,13 @@ def scoreDistanceMatrices(truth, pred, nb_series, triangleTries = 10000):
     me = 0
     spearManCorrelation = 0
     spearManP = 0
+    pearson = 0
     triangularisationScore  = 0
     rmse = np.sqrt(np.mean((conDistPred-conDistTruth)**2))
     me = np.mean(conDistTruth-conDistPred)
-    print(np.argsort(conDistPred))
-    print(np.argsort(conDistTruth))
-    spearManCorrelation, spearManP = stats.spearmanr(np.argsort(conDistTruth), np.argsort(conDistPred))
-
+    
+    spearManCorrelation, spearManP = stats.spearmanr((conDistTruth), (conDistPred))
+    print('Pearson', stats.pearsonr(np.argsort(conDistTruth), np.argsort(conDistPred)))
     triangularisationScore = triangularTest(pred, triangleTries)/triangularTest(truth, triangleTries)
 
 
@@ -270,12 +270,12 @@ def printClusters(idx):
 
 
 def clusterGunPointTest():
+    ratio = 0.2
     distParams={'window': 10, 'psi': 0}
     nwDistParams={'window': 1, 'psi': None}
     #generalClusterParams = {'dists_merger':clustering.singleLinkageUpdater, 'min_clusters':10}
     generalClusterParams = {'dists_merger':None, 'min_clusters':5}
-    pqClusterParams = {'quantisation_ratio':0.2, 'k':10, 
-        'quantizer_usage':clustering.QuantizerUsage.TOP_K, 'seed':0}
+    pqClusterParams = {'k':2500, 'quantizer_usage':clustering.QuantizerUsage.TOP_K_ONLY_AT_INITIALISATION}
     
     qParams=[]
     qParams.append(q.ProductQuantiserParameters(25,30,distParams=distParams, subsetType=q.SubsetSelectionType.DOUBLE_OVERLAP))
@@ -290,94 +290,99 @@ def clusterGunPointTest():
     quantizerType=q.QuantizerType.VQNeedlemanWunsch,nwDistParams=nwDistParams, distParams=distParams))
 
     X,Y=loadGunPointDataSetForClustering()
-    clust = clusterTest(X,Y, qParams, distParams, generalClusterParams, pqClusterParams)
+    XTrain, YTrain, XTest, YTest = splitData(X,Y, ratio, seed)
+    clust = clusterTest(XTrain,XTest, qParams, distParams, generalClusterParams, pqClusterParams)
     #qnwdist = distanceTest(X, Y, qNWParams, distParams)
-    qdist = distanceTest(X, Y, qParams, distParams, ratio=pqClusterParams['quantisation_ratio'])
+    qdist = distanceTest(XTrain, XTest, qParams, distParams)
     #print(qnwdist)
     print(qdist)
     print (clust)
 
 def clusterEco200Test():
-    distParams={'window': 5, 'psi': 0}
-    nwDistParams={'window': 1, 'psi': None}
+    ratio = 0.3
+    seed = 0
+    distParams={'window': 5, 'psi': 1}
+    nwDistParams={'window': 2, 'psi': 0}
     #generalClusterParams = {'dists_merger':clustering.singleLinkageUpdater, 'min_clusters':10}
     generalClusterParams = {'dists_merger':None, 'min_clusters':10}
-    pqClusterParams = {'quantisation_ratio':0.5, 'k':100, 
-        'quantizer_usage':clustering.QuantizerUsage.TOP_K, 'seed':0}
+    pqClusterParams = {'k':20,'quantizer_usage':clustering.QuantizerUsage.TOP_K}
     
     qParams=[]
     qParams.append(q.ProductQuantiserParameters(32,75,distParams=distParams, subsetType=q.SubsetSelectionType.DOUBLE_OVERLAP))
     #qParams.append(q.ProductQuantiserParameters(9,4))
 
     qNWParams=[]
-    qNWParams.append(q.ProductQuantiserParameters(2,2,
-    quantizerType=q.QuantizerType.PQNeedlemanWunsch,nwDistParams=nwDistParams, distParams=distParams, subsetType=q.SubsetSelectionType.NO_OVERLAP))
+    qNWParams.append(q.ProductQuantiserParameters(16,40,
+    quantizerType=q.QuantizerType.PQNeedlemanWunsch,nwDistParams=nwDistParams, distParams=distParams, subsetType=q.SubsetSelectionType.DOUBLE_OVERLAP))
 
     qNWPileParams=[]
     qNWPileParams.append(q.ProductQuantiserParameters(6,4,
     quantizerType=q.QuantizerType.VQNeedlemanWunsch,nwDistParams=nwDistParams, distParams=distParams))
     
     X,Y=loadEcg200DataSetForClustering()
-    clust = clusterTest(X,Y, qParams, distParams, generalClusterParams, pqClusterParams)
+    XTrain, YTrain, XTest, YTest = splitData(X,Y, ratio, seed)
+    clust = clusterTest(XTrain,XTest, qParams, distParams, generalClusterParams, pqClusterParams)
     #qnwdist = distanceTest(X, Y, qNWParams, distParams)
-    qdist = distanceTest(X, Y, qParams, distParams, ratio=pqClusterParams['quantisation_ratio'])
+    qdist = distanceTest(XTrain,XTest, qParams, distParams)
     #print(qnwdist)
     print(qdist)
     print (clust)
 
 
-def distanceTest(X, Y, qParams, distParams, ratio = 0.5, seed = 0):
+def distanceTest(XTrain,XTest, qParams, distParams, ratio = 0.5, seed = 0):
     print('Init distance test')
-    random.seed(seed)
     
-
-    #samples = [random.randint(0,X.shape[0]-1) for i in range(6)]
-    #samples=range(3,5)
-    nb_series = len(X)
-    nb_samples=int(min(nb_series,ratio*nb_series))
-    indiceList = [ i for i in range(nb_series)]
-    random.shuffle(indiceList)
-    samples = indiceList[0:nb_samples]
-
-    pq = q.ProductQuantizer(X[samples, :], qParams)
-    pred = pq.constructApproximateDTWDistanceMatrix(X)
-    truth = dtaidistance.dtw.distance_matrix_fast(X, **distParams)
-
-
+    pq = q.ProductQuantizer(XTrain, qParams)
+    pred = pq.constructApproximateDTWDistanceMatrix(XTest)
+    print('approcimating done')
+    truth = dtaidistance.dtw.distance_matrix_fast(XTest, **distParams)
+    print('regular Calc done')
     me, rmse, spearManCorrelation, spearManP, triangularisationScore = scoreDistanceMatrices(truth,pred, pred.shape[0])
     print ('end distance test')
     return {'me':me, 'rmse':rmse, 'spearManCorrelation':spearManCorrelation, 'spearManP':spearManP, 'triangularisationScore':triangularisationScore}
 
 
-def clusterTest(X,Y, qParams, distParams, generalClusterParams, pqClusterParams ):
+def clusterTest(XTrain,XTest, qParams, distParams, generalClusterParams, pqClusterParams ):
     model = clustering.HierarchicalWithQuantizer(
         dtaidistance.dtw.distance_fast, distParams,
         **generalClusterParams,
-        vq_params=qParams,
         **pqClusterParams)
 
     modelN = clustering.Hierarchical(
         dtaidistance.dtw.distance_matrix_fast, distParams,
         **generalClusterParams)
+
+    model.trainQuantizer(XTrain,qParams)
     
 
     model2 = clustering.HierarchicalTree(model)
-    print('Fitting the approx model')
-    cluster_idx = model2.fit(X)
-    print('Done fitting the approx model')
+    print('Approximate clustering')
+    cluster_idx = model2.fit(XTest)
+    print('Approximate clustering done')
    
     model2N = clustering.HierarchicalTree(modelN)
-    print('Fitting the reference model')
-    cluster_idxN = model2N.fit(X)
-    print('Done fitting the reference model')
+    print('Exact clustering')
+    cluster_idxN = model2N.fit(XTest)
+    print('Exact clustering done')
 
     #model2.plot("~/hierarchy.jpg")
     #model2N.plot("~/hierarchy2.jpg")
 
 
-    jaccard, ari = equaliseClusterLabelsAndCalculateScores(cluster_idxN, cluster_idx, X)
+    jaccard, ari = equaliseClusterLabelsAndCalculateScores(cluster_idxN, cluster_idx, XTest)
     return {'jaccard':jaccard, 'ari':ari }
 
-#clusterEco200Test()
-clusterGunPointTest()
+def splitData(series, seriesY, ratio, seed = 0):
+    import random
+    nb_series = len(series)
+    random.seed(seed)
+    nb_samples=int(min(nb_series,ratio*nb_series))
+    indiceList = [ i for i in range(nb_series)]
+    random.shuffle(indiceList)
+    samples = indiceList[0:nb_samples]
+    testData = indiceList[nb_samples:nb_series]
+    return series[samples], seriesY[samples], series[testData], seriesY[testData]
+
+clusterEco200Test()
+#clusterGunPointTest()
 

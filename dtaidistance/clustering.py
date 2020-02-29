@@ -95,9 +95,7 @@ class HierarchicalWithQuantizer:
 
     def __init__(self, dists_fun, dists_options, max_dist=np.inf, min_clusters=0,
                  merge_hook=None, order_hook=None, show_progress=True,
-                 dists_merger=None, vq_params=[ProductQuantiserParameters(10,10,5)], 
-                 quantizer_usage = QuantizerUsage.ONLY_APPROXIMATES, quantisation_ratio=0.2,
-                 seed = None, k = 10):
+                 dists_merger=None, quantizer_usage = QuantizerUsage.ONLY_APPROXIMATES, k = 10):
         self.dists_fun = dists_fun
         self.dists_options = dists_options
         self.max_dist = max_dist
@@ -106,13 +104,12 @@ class HierarchicalWithQuantizer:
         self.order_hook = order_hook
         self.show_progress = show_progress
         self.dists_merger = dists_merger
-        self.vq_params = vq_params
         self.quantizer_usage = quantizer_usage
-        self.quantisation_ratio=quantisation_ratio
         self.k = k
-        self.seed = seed
+        self.quantizer=None
 
-
+    def trainQuantizer(self, data, pqParams):
+        self.quantizer = ProductQuantizer(data,pqParams)
 
     def fit(self, series):
         """Merge sequences.
@@ -123,25 +120,16 @@ class HierarchicalWithQuantizer:
         """
 
         nb_series = len(series)
-
-        import random
-        if self.seed is not None:
-            random.seed(self.seed)
         nb_clusters = nb_series
-        nb_samples=int(min(nb_series,self.quantisation_ratio*nb_series))
-       
-        indiceList = [ i for i in range(nb_series)]
-        random.shuffle(indiceList)
-        samples = indiceList[0:nb_samples]
 
-        quantizer = ProductQuantizer(series[samples,:],self.vq_params)
-        print('finished PQ')
-       # series= series[5:10,:]
-       # nb_clusters=len(series)
-       # nb_series = len(series)
+        if self.quantizer is None:
+            print('No clusterig will be done. No PQ trained yet.')
+            return None
+
+        print('Calculate PQ distance matrix.')
 
         cluster_idx = dict()
-        dists = quantizer.constructApproximateDTWDistanceMatrix(series)
+        dists = self.quantizer.constructApproximateDTWDistanceMatrix(series)
         realVal = np.zeros((dists.shape[0], dists.shape[1]), dtype=np.uint8)
         print('finished distance approcimation')
        # print (dists)
@@ -259,7 +247,6 @@ class HierarchicalWithQuantizer:
                 prototypes.append(i)
                 if i not in cluster_idx:
                     cluster_idx[i] = {i}
-        print ('Finished PQ clustering')
         return cluster_idx
 
 

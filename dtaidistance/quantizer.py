@@ -2,7 +2,7 @@ from sklearn.cluster import KMeans
 from enum import Enum
 import numpy as np
 import math
-from .dtw import distance_matrix, distance
+from .dtw import distance_matrix_fast, distance
 from .alignment import needleman_wunsch,  SparseSubstitutionMatrix
 
 
@@ -38,7 +38,8 @@ class ProductQuantiserParameters():
     withIndex=False, residuals=False, distanceMetric = Metric.DTW, 
     quantizerType=QuantizerType.PQDICT, nwDistParams = {},
     subsetType = SubsetSelectionType.NO_OVERLAP, barycenterMaxIter=25,
-    max_iters=20):
+    max_iters
+    =20):
         self.subsetSize=subsetSize
         self.dictionarySize=dictionarySize
         self.distParams= distParams
@@ -87,7 +88,7 @@ class PQDictionary():
                 for i in range(0,self.kmeans.cluster_centers_.shape[0]):
                     self.productQuantisers.append(ProductQuantizer(data[self.index[i],:][0], pqParams, depth+1))
             if self.params.quantizerType ==  QuantizerType.PQDICT:
-                self.distanceDTWMatrix = distance_matrix(self.codeBook,**(self.params.distParams))
+                self.distanceDTWMatrix = distance_matrix_fast(np.reshape(self.codeBook,(self.codeBook.shape[0],self.codeBook.shape[1])),**(self.params.distParams))
             # print(self.distanceDTWMatrix)
 
     def replaceCodeBook(self, codeBook, data=None):
@@ -110,15 +111,16 @@ class PQDictionary():
                     for i in range(0,self.kmeans.cluster_centers_.shape[0]):
                         self.productQuantisers.append(ProductQuantizer(data[self.index[i],:][0], pqParams, depth+1))
                 if params.quantizerType ==  QuantizerType.PQDICT:
-                    self.distanceDTWMatrix = distance_matrix(self.codeBook,window= params.windowSize)
-                
-            
-            
-
+                    self.distanceDTWMatrix = distance_matrix_fast(np.reshape(self.codeBook,(self.codeBook.shape[0],self.codeBook.shape[1])),**self.params.distParams)
 
 
     def retrieveCodes(self, data):
-        return self.kmeans.predict(data)
+        if self.params.distanceMetric == Metric.DTW:
+            distMatrix = distance_matrix_fast(np.concatenate((data, np.reshape(self.codeBook, (self.codeBook.shape[0],self.codeBook.shape[1])))),block=((0,data.shape[0]), (data.shape[0], data.shape[0]+self.codeBook.shape[0])),**self.params.distParams )
+            distMatrix=np.argmin(distMatrix, axis=1)[0:len(data)]
+            return distMatrix-len(data)
+        else:
+            return self.kmeans.predict(data)
 
     
     def retrieveApprDTWDistance(self, code1, code2):
