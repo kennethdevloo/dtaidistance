@@ -110,6 +110,17 @@ def loadEcg200DataSets():
 
     return X_train_scaled, Y_train, X_test_scaled, Y_train
 
+def loadEcg500DataSetForClustering():
+    X_train = np.loadtxt('ECG5000_TRAIN.txt')
+
+    X_test = np.loadtxt('ECG5000_TEST.txt')
+    X=np.concatenate((X_train, X_test))
+
+    Y= X[:,-1]
+    X_scaled = preprocessing.scale(X[:,0:-1])
+    return X_scaled, Y
+    
+
 def loadEcg200DataSetForClustering():
     X_train = np.loadtxt('ECG200_TRAIN.txt')
     Y_train = X_train[:,-1]
@@ -316,16 +327,49 @@ def clusterEco200Test():
     quantizerType=q.QuantizerType.PQNeedlemanWunsch,nwDistParams=nwDistParams, distParams=distParams, subsetType=q.SubsetSelectionType.DOUBLE_OVERLAP))
 
     qNWPileParams=[]
-    qNWPileParams.append(q.ProductQuantiserParameters(6,4,
-    quantizerType=q.QuantizerType.VQNeedlemanWunsch,nwDistParams=nwDistParams, distParams=distParams))
+    qNWPileParams.append(q.ProductQuantiserParameters(16,20,
+    quantizerType=q.QuantizerType.VQNeedlemanWunsch,nwDistParams=nwDistParams, distParams=distParams, subsetType=q.SubsetSelectionType.DOUBLE_OVERLAP))
     
     X,Y=loadEcg200DataSetForClustering()
     XTrain, YTrain, XTest, YTest = splitData(X,Y, ratio, seed)
-    clust = clusterTest(XTrain,XTest, qParams, distParams, generalClusterParams, pqClusterParams)
+    #clust = clusterTest(XTrain,XTest, qNWPileParams, distParams, generalClusterParams, pqClusterParams)
     #qnwdist = distanceTest(X, Y, qNWParams, distParams)
-    qdist = distanceTest(XTrain,XTest, qParams, distParams)
+    qdist = distanceTest(XTrain,XTest, qNWPileParams, distParams)
     #print(qnwdist)
     print(qdist)
+    #print (clust)
+
+
+def clusterECG5000Test():
+    ratio = 0.15
+    seed = 0
+    distParams={'window': 5, 'psi': 1}
+    nwDistParams={'window': 2, 'psi': 0}
+    #generalClusterParams = {'dists_merger':clustering.singleLinkageUpdater, 'min_clusters':10}
+    generalClusterParams = {'dists_merger':None, 'min_clusters':10}
+    pqClusterParams = {'k':20,'quantizer_usage':clustering.QuantizerUsage.TOP_K}
+    
+    qParams=[]
+    qParams.append(q.ProductQuantiserParameters(35,75,distParams=distParams, subsetType=q.SubsetSelectionType.DOUBLE_OVERLAP))
+    #qParams.append(q.ProductQuantiserParameters(9,4))
+
+    qNWParams=[]
+    qNWParams.append(q.ProductQuantiserParameters(20,40,
+    quantizerType=q.QuantizerType.PQNeedlemanWunsch,nwDistParams=nwDistParams, distParams=distParams, subsetType=q.SubsetSelectionType.DOUBLE_OVERLAP))
+
+    qNWPileParams=[]
+    qNWPileParams.append(q.ProductQuantiserParameters(20,20,
+    quantizerType=q.QuantizerType.VQNeedlemanWunsch,nwDistParams=nwDistParams, distParams=distParams, subsetType=q.SubsetSelectionType.DOUBLE_OVERLAP))
+    
+    X,Y=loadEcg500DataSetForClustering()
+    print('data loaded, size', X.shape)
+    XTrain, YTrain, XTest, YTest = splitData(X,Y, ratio, seed)
+    print('data split')
+    #clust = clusterTest(XTrain,XTest, qParams, distParams, generalClusterParams, pqClusterParams)
+    #qnwdist = distanceTest(X, Y, qNWParams, distParams)
+    qdist = distanceTest(XTrain,XTest, qParams, distParams)
+    print(qnwdist)
+    #print(qdist)
     print (clust)
 
 
@@ -334,10 +378,10 @@ def distanceTest(XTrain,XTest, qParams, distParams, ratio = 0.5, seed = 0):
     
     pq = q.ProductQuantizer(XTrain, qParams)
     pred = pq.constructApproximateDTWDistanceMatrix(XTest)
-    print('approcimating done')
+    print('approximating done')
     truth = dtaidistance.dtw.distance_matrix_fast(XTest, **distParams)
     print('regular Calc done')
-    me, rmse, spearManCorrelation, spearManP, triangularisationScore = scoreDistanceMatrices(truth,pred, pred.shape[0])
+    #me, rmse, spearManCorrelation, spearManP, triangularisationScore = scoreDistanceMatrices(truth,pred, pred.shape[0])
     print ('end distance test')
     return {'me':me, 'rmse':rmse, 'spearManCorrelation':spearManCorrelation, 'spearManP':spearManP, 'triangularisationScore':triangularisationScore}
 
@@ -383,6 +427,25 @@ def splitData(series, seriesY, ratio, seed = 0):
     testData = indiceList[nb_samples:nb_series]
     return series[samples], seriesY[samples], series[testData], seriesY[testData]
 
-clusterEco200Test()
+#import cProfile, pstats, io
+#pr = cProfile.Profile()
+#pr.enable()
+
+
+clusterECG5000Test()
+
+
+#pr.disable()
+#s = io.StringIO()
+#sortby = 'cumulative'
+#ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
+#ps.print_stats()
+#print(s.getvalue())
+
+
+  
+#clusterEco200Test()
 #clusterGunPointTest()
 
+#python -m cProfile -o program.prof my_program.py
+#snakeviz program.prof
