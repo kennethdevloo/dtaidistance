@@ -6,7 +6,7 @@ from .dtw import distance_matrix_fast, distance
 from .alignment import needleman_wunsch,  SparseSubstitutionMatrix
 
 
-from scipy.cluster.hierarchy import dendrogram,linkage
+#from scipy.cluster.hierarchy import dendrogram,linkage
 from matplotlib import pyplot as plt
 
 from tslearn.clustering import TimeSeriesKMeans
@@ -112,6 +112,11 @@ class PQDictionary():
                         self.productQuantisers.append(ProductQuantizer(data[self.index[i],:][0], pqParams, depth+1))
                 if params.quantizerType ==  QuantizerType.PQDICT:
                     self.distanceDTWMatrix = distance_matrix_fast(np.reshape(self.codeBook,(self.codeBook.shape[0],self.codeBook.shape[1])),**self.params.distParams)
+                    for i in range(0,self.distanceDTWMatrix.shape[0]):
+                        self.distanceDTWMatrix[i,i]=0
+                        for j in range(i+1,self.distanceDTWMatrix.shape[0]):
+                            self.distanceDTWMatrix[j,i] = self.distanceDTWMatrix[i,j]
+
 
 
     def retrieveCodes(self, data):
@@ -124,10 +129,7 @@ class PQDictionary():
 
     
     def retrieveApprDTWDistance(self, code1, code2):
-        if code1 == code2:
-            return 0
-        else :
-            return self.distanceDTWMatrix[int(min(code1, code2)), int(max(code1, code2))]
+        return self.distanceDTWMatrix[int(code1), int(code2)]
 
     def retrieveRecApprDTWDistance(self, code, data1, data2):
         if self.recursiveLayer is False:
@@ -171,9 +173,9 @@ class ProductQuantizer():
     def retrieveCodedData(self, data):
         codedData=None
         if self.params.subsetType is SubsetSelectionType.NO_OVERLAP:
-            codedData = np.zeros((data.shape[0],self.nrDictionaries))
+            codedData = np.zeros((data.shape[0],self.nrDictionaries), dtype=np.int)
         if self.params.subsetType is SubsetSelectionType.DOUBLE_OVERLAP:
-            codedData = np.zeros((data.shape[0],self.nrDictionaries*2-1))
+            codedData = np.zeros((data.shape[0],self.nrDictionaries*2-1), dtype=np.int)
         
         if self.params.quantizerType is not QuantizerType.VQNeedlemanWunsch:
             if self.params.subsetType is SubsetSelectionType.NO_OVERLAP:
@@ -236,14 +238,15 @@ class ProductQuantizer():
                             data1[int((i+1)/2*self.subsetSize-self.halfSubsetSize):int(min(((i+1)/2+1)*self.subsetSize-self.halfSubsetSize,data1.shape[0]))],
                             data2[int((i+1)/2*self.subsetSize-self.halfSubsetSize):int(min(((i+1)/2+1)*self.subsetSize-self.halfSubsetSize,data2.shape[0]))])**2
             else:
-                distance = distance + self.dictionaries[i].retrieveApprDTWDistance(code1[i], code2[i])**2
+                distance = distance + self.dictionaries[i].distanceDTWMatrix[code1[i], code2[i]]#retrieveApprDTWDistance(code1[i], code2[i])**2
         
         if self.params.subsetType is SubsetSelectionType.NO_OVERLAP:
             return np.sqrt(distance)
         else:
-            return np.sqrt(distance)*(self.nrDictionaries-1)/self.nrDictionaries
+            return np.sqrt(distance*self.overlapCorrector)
 
     def constructApproximateDTWDistanceMatrix(self, data):
+        self.overlapCorrector = (self.nrDictionaries-1)/(2*self.nrDictionaries-1)
         codedData = self.retrieveCodedData(data)
         approximateMatrix = np.zeros((data.shape[0], data.shape[0]))
         approximateMatrix[:]=np.inf
