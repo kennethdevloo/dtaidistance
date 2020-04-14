@@ -56,7 +56,7 @@ class SparseSubstitutionMatrix():
             **self.distParams)
 
         d = (self.distances[low, high])**2
-        d_indel=d
+        d_indel=d*2
         return d, d_indel
         
         

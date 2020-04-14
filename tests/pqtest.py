@@ -9,6 +9,7 @@ from dtaidistance import alignment, clustering
 import math
 import scipy.sparse as sparse
 import dtaidistance.quantizer as q
+import dtaidistance.quantizer_c as qc
 from sklearn.metrics.cluster import adjusted_rand_score
 from scipy.cluster.hierarchy import dendrogram,linkage
 from matplotlib import pyplot as plt
@@ -118,7 +119,7 @@ def loadEcg500DataSetForClustering():
 
     Y= X[:,-1]
     X_scaled = preprocessing.scale(X[:,0:-1])
-    return X_scaled, Y
+    return X_scaled[0:1000,:], Y[0:1000]
     
 
 def loadEcg200DataSetForClustering():
@@ -343,7 +344,7 @@ def clusterEco200Test():
 def clusterECG5000Test():
     ratio = 0.15
     seed = 0
-    distParams={'window': 5, 'psi': 1}
+    distParams={'window': 10, 'psi': 1}
     nwDistParams={'window': 2, 'psi': 0}
     #generalClusterParams = {'dists_merger':clustering.singleLinkageUpdater, 'min_clusters':10}
     generalClusterParams = {'dists_merger':None, 'min_clusters':10}
@@ -368,20 +369,66 @@ def clusterECG5000Test():
     #clust = clusterTest(XTrain,XTest, qParams, distParams, generalClusterParams, pqClusterParams)
     #qnwdist = distanceTest(X, Y, qNWParams, distParams)
     qdist = distanceTest(XTrain,XTest, qParams, distParams)
-    print(qnwdist)
+    print(qdist)
     #print(qdist)
     print (clust)
 
+
+def clusterECG5000FastTest():
+    ratio = 0.01
+    seed = 0
+    
+    #distParams=qc.DistanceParams(windowSize=10, psi = 1)
+    distParams={'window': 10, 'psi': 1}
+
+    #generalClusterParams = {'dists_merger':clustering.singleLinkageUpdater, 'min_clusters':10}
+    generalClusterParams = {'dists_merger':None, 'min_clusters':10}
+    pqClusterParams = {'k':20,'quantizer_usage':clustering.QuantizerUsage.TOP_K}
+    
+    qParams=[]
+    qParams.append(qc.ProductQuantiserParameters(35,75,distParams=distParams, subsetType=q.SubsetSelectionType.DOUBLE_OVERLAP))
+    #qParams.append(q.ProductQuantiserParameters(9,4))
+
+    X,Y=loadEcg500DataSetForClustering()
+    print('data loaded, size', X.shape)
+    XTrain, YTrain, XTest, YTest = splitData(X,Y, ratio, seed)
+    print('data split')
+    #clust = clusterTest(XTrain,XTest, qParams, distParams, generalClusterParams, pqClusterParams)
+    #qnwdist = distanceTest(X, Y, qNWParams, distParams)
+    qdist = fastDistanceTest(XTrain,XTest, qParams, distParams)
+    print(qdist)
+    #print(qdist)
+    #print (clust)
+
+
+
+def fastDistanceTest(XTrain,XTest, qParams, distParams, ratio = 0.5, seed = 0):
+    print('Init distance test')
+    
+    pq = qc.PyProductQuantizer(XTrain, qParams)
+    print('regular')
+    truth = dtaidistance.dtw.distance_matrix_fast(XTest, **distParams)
+    print('regular Calc done')
+    print('prediction')
+    pred = pq.constructApproximateDTWDistanceMatrix(XTest)
+    print('approximating done')
+
+    me, rmse, spearManCorrelation, spearManP, triangularisationScore = scoreDistanceMatrices(truth,pred, pred.shape[0])
+    print ('end distance test')
+    return {'me':me, 'rmse':rmse, 'spearManCorrelation':spearManCorrelation, 'spearManP':spearManP, 'triangularisationScore':triangularisationScore}
 
 def distanceTest(XTrain,XTest, qParams, distParams, ratio = 0.5, seed = 0):
     print('Init distance test')
     
     pq = q.ProductQuantizer(XTrain, qParams)
-    pred = pq.constructApproximateDTWDistanceMatrix(XTest)
-    print('approximating done')
+    print('regular')
     truth = dtaidistance.dtw.distance_matrix_fast(XTest, **distParams)
     print('regular Calc done')
-    #me, rmse, spearManCorrelation, spearManP, triangularisationScore = scoreDistanceMatrices(truth,pred, pred.shape[0])
+    print('prediction')
+    pred = pq.constructApproximateDTWDistanceMatrix(XTest)
+    print('approximating done')
+
+    me, rmse, spearManCorrelation, spearManP, triangularisationScore = scoreDistanceMatrices(truth,pred, pred.shape[0])
     print ('end distance test')
     return {'me':me, 'rmse':rmse, 'spearManCorrelation':spearManCorrelation, 'spearManP':spearManP, 'triangularisationScore':triangularisationScore}
 
@@ -432,7 +479,7 @@ def splitData(series, seriesY, ratio, seed = 0):
 #pr.enable()
 
 
-clusterECG5000Test()
+clusterECG5000FastTest()
 
 
 #pr.disable()
@@ -447,5 +494,3 @@ clusterECG5000Test()
 #clusterEco200Test()
 #clusterGunPointTest()
 
-#python -m cProfile -o program.prof my_program.py
-#snakeviz program.prof

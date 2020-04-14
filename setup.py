@@ -224,7 +224,14 @@ if cythonize is not None and numpy is not None:
             "dtaidistance.dtw_c", ["dtaidistance/dtw_c.pyx"],
             include_dirs=np_include_dirs,
             extra_compile_args=[],
-            extra_link_args=[])])
+            extra_link_args=[]),
+        Extension(
+            "dtaidistance.quantizer_c", ["dtaidistance/quantizer_c.pyx"],
+            include_dirs=np_include_dirs,
+            extra_compile_args=[],
+            extra_link_args=[])
+      
+            ])
 elif numpy is None:
     print("WARNING: Numpy was not found, preparing a pure Python version.")
     ext_modules = []

@@ -9,6 +9,8 @@ from .alignment import needleman_wunsch,  SparseSubstitutionMatrix
 #from scipy.cluster.hierarchy import dendrogram,linkage
 from matplotlib import pyplot as plt
 
+
+
 from tslearn.clustering import TimeSeriesKMeans
 
 class SubsetSelectionType(Enum):
