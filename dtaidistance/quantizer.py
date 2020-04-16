@@ -91,7 +91,10 @@ class PQDictionary():
                     self.productQuantisers.append(ProductQuantizer(data[self.index[i],:][0], pqParams, depth+1))
             if self.params.quantizerType ==  QuantizerType.PQDICT:
                 self.distanceDTWMatrix = distance_matrix_fast(np.reshape(self.codeBook,(self.codeBook.shape[0],self.codeBook.shape[1])),**(self.params.distParams))
-            # print(self.distanceDTWMatrix)
+                for i in range(0,self.distanceDTWMatrix.shape[0]):
+                        self.distanceDTWMatrix[i,i]=0
+                        for j in range(i+1,self.distanceDTWMatrix.shape[0]):
+                            self.distanceDTWMatrix[j,i] = self.distanceDTWMatrix[i,j]
 
     def replaceCodeBook(self, codeBook, data=None):
         self.kmeans.cluster_centers_= codeBook
@@ -240,7 +243,7 @@ class ProductQuantizer():
                             data1[int((i+1)/2*self.subsetSize-self.halfSubsetSize):int(min(((i+1)/2+1)*self.subsetSize-self.halfSubsetSize,data1.shape[0]))],
                             data2[int((i+1)/2*self.subsetSize-self.halfSubsetSize):int(min(((i+1)/2+1)*self.subsetSize-self.halfSubsetSize,data2.shape[0]))])**2
             else:
-                distance = distance + self.dictionaries[i].distanceDTWMatrix[code1[i], code2[i]]#retrieveApprDTWDistance(code1[i], code2[i])**2
+                distance = distance + self.dictionaries[i].distanceDTWMatrix[code1[i], code2[i]]**2#retrieveApprDTWDistance(code1[i], code2[i])**2
         
         if self.params.subsetType is SubsetSelectionType.NO_OVERLAP:
             return np.sqrt(distance)
