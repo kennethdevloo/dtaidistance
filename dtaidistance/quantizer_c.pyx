@@ -57,7 +57,7 @@ class ProductQuantiserParameters():
             self.metric_params = None
         else:
             self.metric_params = {'global_constraint':"sakoe_chiba", 'sakoe_chiba_radius':kmeansWindowSize}
-
+        self.nwDistParams=nwDistParams
 
 cdef class PQDictionary():
     cdef public bint recursiveLayer
@@ -82,6 +82,7 @@ cdef class PQDictionary():
 
      
         self.kmeans = TimeSeriesKMeans(metric_params = self.params.metric_params, n_clusters=self.params.dictionarySize,random_state=0,metric="dtw", max_iter_barycenter=self.params.barycenterMaxIter, max_iter=self.params.max_iters).fit(data)
+        self.L, self.U = lb_keogh_enveloppes_fast(np.reshape(self.kmeans.cluster_centers_, (self.kmeans.cluster_centers_.shape[0],self.kmeans.cluster_centers_.shape[1])), self.params.distParams['window'])
         if self.params.withIndex or self.recursiveLayer:
             predictions = self.kmeans.predict(data)
             self.index=[]
@@ -95,7 +96,6 @@ cdef class PQDictionary():
                     self.productQuantisers.append(ProductQuantizer(data[self.index[i],:][0], pqParams, depth+1))
         if self.params.quantizerType ==  QuantizerType.PQDICT:
             self.distanceDTWMatrix = distance_matrix(np.reshape(self.kmeans.cluster_centers_ ,(self.kmeans.cluster_centers_.shape[0],self.kmeans.cluster_centers_.shape[1])),**self.params.distParams )
-            self.L, self.U = lb_keogh_enveloppes_fast(np.reshape(self.kmeans.cluster_centers_, (self.kmeans.cluster_centers_.shape[0],self.kmeans.cluster_centers_.shape[1])), self.params.distParams['window'])
             for i in range(0,self.distanceDTWMatrix.shape[0]):
                 self.distanceDTWMatrix[i,i]=0
                 for j in range(i+1,self.distanceDTWMatrix.shape[0]):
@@ -105,7 +105,7 @@ cdef class PQDictionary():
     @cython.wraparound(False)  # turn off negative index wrapping for entire function
     cpdef replaceCodeBook(self, np.ndarray[np.double_t, ndim=2] codeBook):
         self.kmeans.cluster_centers_= codeBook
-        self.codeBook=codeBook
+        self.L, self.U = lb_keogh_enveloppes_fast(np.reshape(self.kmeans.cluster_centers_, (self.kmeans.cluster_centers_.shape[0],self.kmeans.cluster_centers_.shape[1])), self.params.distParams['window'])
 
     @cython.boundscheck(False) # turn off bounds-checking for entire function
     @cython.wraparound(False)  # turn off negative index wrapping for entire function
@@ -150,7 +150,7 @@ cdef class ProductQuantizer():
 
     def __init__(self,data, pqParams, depth=0):
         cdef int i 
-        cdef np.ndarray[dtype=np.double_t, ndim=2] codeBook
+        cdef np.ndarray[dtype=np.double_t, ndim=2] codeBook, L, U
         
         self.nrDictionaries = math.ceil(data.shape[1]/pqParams[depth].subsetSize) 
         self.subsetSize = pqParams[depth].subsetSize
@@ -184,7 +184,8 @@ cdef class ProductQuantizer():
     @cython.wraparound(False)  # turn off negative index wrapping for entire function
     cdef np.ndarray[np.int_t, ndim = 2] retrieveCodedData(self, np.ndarray[np.double_t,ndim=2] data):
         cdef np.ndarray[np.int_t, ndim=2] codedData
-        cdef int i
+        cdef int i, dictionaryCount
+        dictionaryCount=0
         if self.params.subsetType == SubsetSelectionType.NO_OVERLAP:
             codedData = np.zeros((data.shape[2],self.nrDictionaries), dtype=np.int)
         if self.params.subsetType == SubsetSelectionType.DOUBLE_OVERLAP:
@@ -195,6 +196,9 @@ cdef class ProductQuantizer():
             for i in range(0,self.nrDictionaries):
                 codedData[:, i] = self.dictionaries[i].retrieveCodes(
                     data[:,i*self.subsetSize:min((i+1)*self.subsetSize,data.shape[1])])
+            if self.params.quantizerType is  QuantizerType.PQNeedlemanWunsch:
+                dictionaryCount = dictionaryCount + self.dictionaries[i].kmeans.cluster_centers_.shape[0]
+                codedData[:, i] = codedData[:, i] + dictionaryCount
         else:
             test = self.dictionaries[0].retrieveCodes(
                 data[:,0*self.subsetSize:min((0+1)*self.subsetSize,data.shape[1])])
@@ -206,16 +210,26 @@ cdef class ProductQuantizer():
                 codedData[:, 2*i] = self.dictionaries[2*i].retrieveCodes(
                     data[:,i*self.subsetSize:min((i+1)*self.subsetSize,data.shape[1])])
                 if self.params.quantizerType is  QuantizerType.PQNeedlemanWunsch:
-                    codedData[:, 2*i-1] + (2*i-1)* self.params.dictionarySize
-                    codedData[:, 2*i] + (2*i)* self.params.dictionarySize
-        print(codedData[0:3,:])
+                    dictionaryCount = dictionaryCount + self.dictionaries[2*i-1].kmeans.cluster_centers_.shape[0]
+                    codedData[:, 2*i-1] + dictionaryCount
+                    dictionaryCount = dictionaryCount + self.dictionaries[2*i].kmeans.cluster_centers_.shape[0]
+                    codedData[:, 2*i] + dictionaryCount
+        
         return codedData
     @cython.boundscheck(False) # turn off bounds-checking for entire function
     @cython.wraparound(False)  # turn off negative index wrapping for entire function
     cdef calculateApprDTWDistanceForCodes(self, np.ndarray[np.int_t, ndim=1] code1, np.ndarray[np.int_t, ndim=1] code2, np.ndarray[np.double_t, ndim=1] data1, np.ndarray[np.double_t, ndim=1] data2):
         cdef double distance = 0.0
-        #print (distance)
         cdef int i
+        cdef object m
+
+        if self.params.quantizerType==QuantizerType.PQNeedlemanWunsch or self.params.quantizerType==QuantizerType.VQNeedlemanWunsch:
+            distance,m =needleman_wunsch(code1, code2,substitutionMatrix=self.substitution, **(self.params.nwDistParams))
+            if self.params.subsetType is SubsetSelectionType.NO_OVERLAP:
+                return np.sqrt(distance)
+            else:
+                return np.sqrt(distance)*(self.nrDictionaries-1)/self.nrDictionaries
+                
         for i in range(0,code1.shape[0]):
            # print (distance)
             if self.dictionaries[i].recursiveLayer is True and code1[i] == code2[i]:
