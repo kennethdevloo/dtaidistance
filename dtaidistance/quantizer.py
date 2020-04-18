@@ -40,8 +40,7 @@ class ProductQuantiserParameters():
     withIndex=False, residuals=False, distanceMetric = Metric.DTW, 
     quantizerType=QuantizerType.PQDICT, nwDistParams = {},
     subsetType = SubsetSelectionType.NO_OVERLAP, barycenterMaxIter=25,
-    max_iters
-    =20):
+    max_iters=20, kmeansWindowSize = 0, useLbKeoghToFit = False):
         self.subsetSize=subsetSize
         self.dictionarySize=dictionarySize
         self.distParams= distParams
@@ -53,6 +52,12 @@ class ProductQuantiserParameters():
         self.subsetType=subsetType
         self.barycenterMaxIter =barycenterMaxIter
         self.max_iters=max_iters
+        self.useLbKeoghToFit = useLbKeoghToFit
+
+        if kmeansWindowSize == 0:
+            self.metric_params = None
+        else:
+            self.metric_params = {'global_constraint':"sakoe_chiba", 'sakoe_chiba_radius':kmeansWindowSize}
 
 
 
@@ -70,16 +75,11 @@ class PQDictionary():
         self.params=pqParams[depth]
 
       
-        if self.params.distanceMetric is Metric.ED:
-            print('ED is not implemented')
-            pass
-
-
         if self.params.distanceMetric is Metric.DTW:
             if self.params.residuals:
                 #makes no sense to subtract mean from time series
                 pass        
-            self.kmeans = TimeSeriesKMeans(n_clusters=self.params.dictionarySize,random_state=0,metric="dtw", max_iter_barycenter=self.params.barycenterMaxIter, max_iter=self.params.max_iters).fit(data)
+            self.kmeans = TimeSeriesKMeans(metric_params = self.params.metric_params, n_clusters=self.params.dictionarySize,random_state=0,metric="dtw", max_iter_barycenter=self.params.barycenterMaxIter, max_iter=self.params.max_iters).fit(data)
             self.codeBook = self.kmeans.cluster_centers_
             if self.params.withIndex or self.recursiveLayer:
                 predictions = self.kmeans.predict(data)
@@ -99,28 +99,6 @@ class PQDictionary():
     def replaceCodeBook(self, codeBook, data=None):
         self.kmeans.cluster_centers_= codeBook
         self.codeBook=codeBook
-
-        if data is not None:
-            if params.residuals:
-                self.avg = np.mean(data)
-                data = data - self.avg
-
-
-                if self.params.withIndex or self.recursiveLayer:
-                    predictions = self.kmeans.predict(data)
-                    self.index=[]
-                    for i in range(0,self.params.dictionarySize):
-                        self.index.append(np.where(predictions == i))
-                    
-                if self.recursiveLayer:
-                    for i in range(0,self.kmeans.cluster_centers_.shape[0]):
-                        self.productQuantisers.append(ProductQuantizer(data[self.index[i],:][0], pqParams, depth+1))
-                if params.quantizerType ==  QuantizerType.PQDICT:
-                    self.distanceDTWMatrix = distance_matrix_fast(np.reshape(self.codeBook,(self.codeBook.shape[0],self.codeBook.shape[1])),**self.params.distParams)
-                    for i in range(0,self.distanceDTWMatrix.shape[0]):
-                        self.distanceDTWMatrix[i,i]=0
-                        for j in range(i+1,self.distanceDTWMatrix.shape[0]):
-                            self.distanceDTWMatrix[j,i] = self.distanceDTWMatrix[i,j]
 
 
 
@@ -214,7 +192,7 @@ class ProductQuantizer():
                         data[:,i*self.subsetSize-self.halfSubsetSize:min((i+1)*self.subsetSize-self.halfSubsetSize,data.shape[1])])
                     codedData[:, 2*i] = self.dictionaries.retrieveCodes(
                         data[:,i*self.subsetSize:min((i+1)*self.subsetSize,data.shape[1])])
-
+        print(codedData[0:3,:])
         return codedData
 
     def calculateApprDTWDistanceForCodes(self, code1, code2, data1, data2):

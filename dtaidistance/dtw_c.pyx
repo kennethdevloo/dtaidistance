@@ -34,6 +34,64 @@ DTYPE = np.double
 ctypedef np.double_t DTYPE_t
 cdef double inf = np.inf
 
+
+
+@cython.boundscheck(False) # turn off bounds-checking for entire function
+@cython.wraparound(False)  # turn off negative index wrapping for entire function
+cpdef nearest_neighbour_lb_keogh(np.ndarray[DTYPE_t, ndim=2] data, np.ndarray[DTYPE_t, ndim=2] L, np.ndarray[DTYPE_t, ndim=2] U, np.ndarray[DTYPE_t, ndim=2] target, distParams, use_parallel, np.ndarray[np.int_t, ndim=1] best_fits, np.ndarray[DTYPE_t, ndim=2] lb):
+    cdef int d, t
+    cdef double best_score_so_far, score
+
+    cdef int window = distParams['window']
+    cdef int psi = distParams['psi']
+
+    for d in range(data.shape[0]):
+        best_score_so_far = np.inf
+        for t in range(target.shape[0]):
+            if best_score_so_far > lb[d, t]:
+    #           s1, s2 = , target[t, :]
+                score = distance_nogil_c(&data[d,0],&target[t,0],data.shape[1], target.shape[1], window,0,0, 0, 0,  psi)
+                if score < best_score_so_far:
+                    best_score_so_far = score
+                    best_fits[d]=t
+
+@cython.boundscheck(False) # turn off bounds-checking for entire function
+@cython.wraparound(False)  # turn off negative index wrapping for entire function
+cpdef lb_keogh_distance(np.ndarray[DTYPE_t, ndim=2] data, np.ndarray[DTYPE_t, ndim=2] L, np.ndarray[DTYPE_t, ndim=2] U, bint use_parallel, np.ndarray[DTYPE_t, ndim=2] lb):
+    cdef int d, e, i
+    cdef DTYPE_t ci, dif
+    use_parallel = False
+    if use_parallel:
+        #with nogil:
+        #    for d in prange(data.shape[0]):
+        pass
+    else:
+        for d in range(data.shape[0]):
+            for e in range(L.shape[0]):
+                for i in range(L.shape[1]):
+                    ci = data[d, i]
+                    dif = 0
+                    if ci > U[e, i]:
+                        dif = ci - U[e, i]
+                    elif ci < L[e,i]:
+                        dif = - ci + L[e, i]
+                    lb[d,e] = lb[d,e]+dif*dif
+                lb[d,e] = np.sqrt(lb[d,e])
+
+
+
+@cython.boundscheck(False) # turn off bounds-checking for entire function
+@cython.wraparound(False)  # turn off negative index wrapping for entire function
+cpdef lb_keogh_enveloppes(np.ndarray[DTYPE_t, ndim=2] data, int window, np.ndarray[DTYPE_t, ndim=2] L, np.ndarray[DTYPE_t, ndim=2] U):
+    cdef int i, d, imin, imax
+    #with nogil, parallel():
+    for i in range(data.shape[1]):
+        imin = max(0, i - window+1)
+        imax = min(data.shape[1],i + window)
+        for d in range(data.shape[0]):
+            U[d,i] = np.max(data[d,range(imin,imax)])
+            L[d,i] = np.min(data[d,range(imin,imax)])
+
 @cython.boundscheck(False) # turn off bounds-checking for entire function
 @cython.wraparound(False)  # turn off negative index wrapping for entire function
 def distance(np.ndarray[DTYPE_t, ndim=1] s1, np.ndarray[DTYPE_t, ndim=1] s2,

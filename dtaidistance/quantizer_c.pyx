@@ -1,13 +1,15 @@
+# cython: profile=True
 from enum import Enum
 import numpy as np
 cimport numpy as np
 import math
 cimport cython
-from .dtw import distance_matrix_fast as distance_matrix #, distance_fast
+from .dtw import distance_matrix_fast as distance_matrix, nearest_neighbour_lb_keogh_fast, lb_keogh_enveloppes_fast #, distance_fast
+from .alignment import needleman_wunsch,  SparseSubstitutionMatrix
 
 from tslearn.clustering import TimeSeriesKMeans
 
-# cython: profile=True
+
 
 
 cpdef enum SubsetSelectionType:
@@ -20,17 +22,14 @@ cpdef enum Metric:
     
 
 cpdef enum QuantizerType:
-    PQDICT=0 #With recursion to smaller chunks
+    PQDICT=0 
     PQNeedlemanWunsch=1
-    VQNeedlemanWunsch=2 #NOT YET IMPLEMENTED, should be with VQ+index over calculated centres
+    VQNeedlemanWunsch=2 
 
 cpdef enum PQDictionaryCalculator: #NOT IMPLEMENTED
     KMEANS=0 #Uses tslearm, add barycentrix mean + kmeans to dtaidistance
-    TADPOLE=1 #Just use R bridge?
+    TADPOLE=1 #Just use R bridge? Not supported right now
 
-cdef enum clusterType:
-    SINGLELINKAGE=0
-    COMPLETELINKAGE=1
 
 class DistanceParams():
     def __init__(self, windowSize = 10, psi = 0):
@@ -40,20 +39,24 @@ class DistanceParams():
 
 class ProductQuantiserParameters():
     def __init__(self, subsetSize = 35, dictionarySize = 30, distParams=DistanceParams(), 
-    withIndex=False, residuals=False, distanceMetric = Metric.DTW, 
+    withIndex=False, residuals=False, 
     quantizerType=QuantizerType.PQDICT, nwDistParams = {},
     subsetType = SubsetSelectionType.NO_OVERLAP, barycenterMaxIter=25,
-    max_iters =20):
+    max_iters =20, kmeansWindowSize = 0, useLbKeoghToFit = True):
         self.subsetSize=subsetSize
         self.dictionarySize=dictionarySize
         self.distParams= distParams
         self.withIndex=withIndex
         self.residuals=residuals
-        self.distanceMetric=distanceMetric
         self.quantizerType=quantizerType
         self.subsetType=subsetType
         self.barycenterMaxIter =barycenterMaxIter
         self.max_iters=max_iters
+        self.useLbKeoghToFit = useLbKeoghToFit
+        if kmeansWindowSize == 0:
+            self.metric_params = None
+        else:
+            self.metric_params = {'global_constraint':"sakoe_chiba", 'sakoe_chiba_radius':kmeansWindowSize}
 
 
 cdef class PQDictionary():
@@ -64,6 +67,7 @@ cdef class PQDictionary():
     cdef object index
     cdef object params
     cdef object kmeans
+    cdef object L, U  #enveloppes
     #cdef np.ndarray[np.double_t, ndim=2] distanceDTWMatrix
     cdef public object distanceDTWMatrix
     cdef list productQuantisers
@@ -73,10 +77,11 @@ cdef class PQDictionary():
         self.recursiveLayer = False
         if  depth+1 < len(pqParams):
             self.recursiveLayer=True 
+            self.productQuantisers = []
         self.params=pqParams[depth]
 
      
-        self.kmeans = TimeSeriesKMeans(n_clusters=self.params.dictionarySize,random_state=0,metric="dtw", max_iter_barycenter=self.params.barycenterMaxIter, max_iter=self.params.max_iters).fit(data)
+        self.kmeans = TimeSeriesKMeans(metric_params = self.params.metric_params, n_clusters=self.params.dictionarySize,random_state=0,metric="dtw", max_iter_barycenter=self.params.barycenterMaxIter, max_iter=self.params.max_iters).fit(data)
         if self.params.withIndex or self.recursiveLayer:
             predictions = self.kmeans.predict(data)
             self.index=[]
@@ -84,22 +89,41 @@ cdef class PQDictionary():
                 self.index.append(np.where(predictions == i))
         if self.recursiveLayer:
             for i in range(0,self.kmeans.cluster_centers_.shape[0]):
-                self.productQuantisers.append(ProductQuantizer(data[self.index[i],:][0], pqParams, depth+1))
-        self.distanceDTWMatrix = distance_matrix(np.reshape(self.kmeans.cluster_centers_ ,(self.kmeans.cluster_centers_.shape[0],self.kmeans.cluster_centers_.shape[1])),**self.params.distParams )
-        for i in range(0,self.distanceDTWMatrix.shape[0]):
-            self.distanceDTWMatrix[i,i]=0
-            for j in range(i+1,self.distanceDTWMatrix.shape[0]):
-                self.distanceDTWMatrix[j,i] = self.distanceDTWMatrix[i,j]
+                if len(data[self.index[i],:][0]) == 0:
+                    pass
+                else:
+                    self.productQuantisers.append(ProductQuantizer(data[self.index[i],:][0], pqParams, depth+1))
+        if self.params.quantizerType ==  QuantizerType.PQDICT:
+            self.distanceDTWMatrix = distance_matrix(np.reshape(self.kmeans.cluster_centers_ ,(self.kmeans.cluster_centers_.shape[0],self.kmeans.cluster_centers_.shape[1])),**self.params.distParams )
+            self.L, self.U = lb_keogh_enveloppes_fast(np.reshape(self.kmeans.cluster_centers_, (self.kmeans.cluster_centers_.shape[0],self.kmeans.cluster_centers_.shape[1])), self.params.distParams['window'])
+            for i in range(0,self.distanceDTWMatrix.shape[0]):
+                self.distanceDTWMatrix[i,i]=0
+                for j in range(i+1,self.distanceDTWMatrix.shape[0]):
+                    self.distanceDTWMatrix[j,i] = self.distanceDTWMatrix[i,j]
+
+    @cython.boundscheck(False) # turn off bounds-checking for entire function
+    @cython.wraparound(False)  # turn off negative index wrapping for entire function
+    cpdef replaceCodeBook(self, np.ndarray[np.double_t, ndim=2] codeBook):
+        self.kmeans.cluster_centers_= codeBook
+        self.codeBook=codeBook
+
     @cython.boundscheck(False) # turn off bounds-checking for entire function
     @cython.wraparound(False)  # turn off negative index wrapping for entire function
     cpdef retrieveCodes(self, np.ndarray[np.double_t, ndim=2] data):
-        print(data.shape[0], data.shape[1])
-        #print(self.kmeans.cluster_centers_)
-       # print(np.concatenate((data, np.reshape(self.kmeans.cluster_centers_, (self.kmeans.cluster_centers_.shape[0],self.kmeans.cluster_centers_.shape[1])))).shape)
-        cdef np.ndarray[np.double_t, ndim=2] distMatrix = distance_matrix(np.concatenate((data, np.reshape(self.kmeans.cluster_centers_, (self.kmeans.cluster_centers_.shape[0],self.kmeans.cluster_centers_.shape[1])))),block=((0,data.shape[0]), (data.shape[0], data.shape[0]+self.kmeans.cluster_centers_.shape[0])),**self.params.distParams )
-        cdef np.ndarray[np.int_t, ndim=1] distMatrix2=np.argmin(distMatrix, axis=1)[0:len(data)]
-        return distMatrix2-len(data)
-      
+        cdef np.ndarray[np.int_t, ndim=1] distMatrix2
+        cdef np.ndarray[np.double_t, ndim=2] distMatrix
+        if not self.params.useLbKeoghToFit:
+            distMatrix = distance_matrix(np.concatenate((data, np.reshape(self.kmeans.cluster_centers_, (self.kmeans.cluster_centers_.shape[0],self.kmeans.cluster_centers_.shape[1])))),block=((0,data.shape[0]), (data.shape[0], data.shape[0]+self.kmeans.cluster_centers_.shape[0])),**self.params.distParams )
+            distMatrix2=np.argmin(distMatrix, axis=1)[0:len(data)]
+            return distMatrix2-len(data)
+        #return self.kmeans.predict(data)
+        elif self.params.useLbKeoghToFit:
+            return nearest_neighbour_lb_keogh_fast(data, self.L, self.U,np.reshape(self.kmeans.cluster_centers_, (self.kmeans.cluster_centers_.shape[0],self.kmeans.cluster_centers_.shape[1])), self.params.distParams)
+    
+    cpdef getCodeBook(self):
+        return np.reshape(self.kmeans.cluster_centers_, (self.kmeans.cluster_centers_.shape[0],self.kmeans.cluster_centers_.shape[1]))
+
+
     @cython.boundscheck(False) # turn off bounds-checking for entire function
     @cython.wraparound(False)  # turn off negative index wrapping for entire function
     cdef double retrieveApprDTWDistance(self, int code1, int code2):
@@ -107,7 +131,7 @@ cdef class PQDictionary():
 
     @cython.boundscheck(False) # turn off bounds-checking for entire function
     @cython.wraparound(False)  # turn off negative index wrapping for entire function
-    cdef double retrieveRecApprDTWDistance(self, int code, np.ndarray[np.int_t, ndim=1] data1, np.ndarray[np.int_t, ndim=1] data2):
+    cpdef double retrieveRecApprDTWDistance(self, int code, np.ndarray[np.double_t, ndim=1] data1, np.ndarray[np.double_t, ndim=1] data2):
         if self.recursiveLayer is False:
             return 0
         return self.productQuantisers[code].calculateApprDTWDistanceForData(data1, data2)
@@ -120,10 +144,14 @@ cdef class ProductQuantizer():
     cdef int halfSubsetSize
     cdef list dictionaries
     cdef object params
+    cdef object substitution
     cdef double overlapCorrector
     #ProductQuantiserParameters params
 
     def __init__(self,data, pqParams, depth=0):
+        cdef int i 
+        cdef np.ndarray[dtype=np.double_t, ndim=2] codeBook
+        
         self.nrDictionaries = math.ceil(data.shape[1]/pqParams[depth].subsetSize) 
         self.subsetSize = pqParams[depth].subsetSize
         self.halfSubsetSize=self.subsetSize/2
@@ -140,6 +168,17 @@ cdef class ProductQuantizer():
                 self.dictionaries.append(PQDictionary(data[:,(i*self.subsetSize-self.halfSubsetSize):min((i+1)*self.subsetSize-self.halfSubsetSize,data.shape[1])],pqParams, depth))
                 self.dictionaries.append(PQDictionary(data[:,i*self.subsetSize:min((i+1)*self.subsetSize,data.shape[1])],pqParams, depth)) 
               #  print (self.dictionaries[i].distanceDTWMatrix)
+
+        if self.params.quantizerType==QuantizerType.PQNeedlemanWunsch or self.params.quantizerType==QuantizerType.VQNeedlemanWunsch:
+            codeBook=self.dictionaries[0].getCodeBook()
+            for i in range(1, len(self.dictionaries)):
+                codeBook = np.concatenate((codeBook,self.dictionaries[i].getCodeBook()))
+            self.substitution = SparseSubstitutionMatrix(codeBook,distParams=pqParams[depth].distParams)
+
+        if self.params.quantizerType==QuantizerType.VQNeedlemanWunsch:
+            for i in range(len(self.dictionaries)):
+                self.dictionaries[i].replaceCodeBook(codeBook)
+            
         
     @cython.boundscheck(False) # turn off bounds-checking for entire function
     @cython.wraparound(False)  # turn off negative index wrapping for entire function
@@ -169,7 +208,7 @@ cdef class ProductQuantizer():
                 if self.params.quantizerType is  QuantizerType.PQNeedlemanWunsch:
                     codedData[:, 2*i-1] + (2*i-1)* self.params.dictionarySize
                     codedData[:, 2*i] + (2*i)* self.params.dictionarySize
-    
+        print(codedData[0:3,:])
         return codedData
     @cython.boundscheck(False) # turn off bounds-checking for entire function
     @cython.wraparound(False)  # turn off negative index wrapping for entire function

@@ -16,7 +16,7 @@ import numpy as np
 
 from .util import SeriesContainer, dtaidistance_dir
 
-
+0
 logger = logging.getLogger("be.kuleuven.dtai.distance")
 
 try:
@@ -34,10 +34,100 @@ except ImportError:
 DTYPE = np.double
 
 
+def lb_keogh_enveloppes_fast(data, window=None ):
+    return lb_keogh_enveloppes(data, window, True)
+
+
+def lb_keogh_enveloppes(data, window=None , use_c = False):
+    L = np.zeros(data.shape, dtype=DTYPE)
+    U = np.zeros(data.shape, dtype=DTYPE)
+
+    if window is None:
+        window = data.shape[1]
+
+    if use_c:
+       dtw_c.lb_keogh_enveloppes(data, window, L, U) 
+    else:
+        for i in range(data.shape[1]):
+            imin = max(0, i - window)
+            imax = min(data.shape[1],i + window)
+            for d in range(data.shape[0]):
+                U[d,i] = np.max(data[d,imin:imax])
+                L[d,i] = np.min(data[d,imin:imax])
+        
+    return L,U
+
+'''Getr nearest neighbour, sped up lb_keogh implementation'''
+def nearest_neighbour_lb_keogh_fast(data, L, U, target, distParams={}, use_c = False, use_parallel= False):
+    return nearest_neighbour_lb_keogh(data, L, U, target, distParams, True, True)
+
+def nearest_neighbour_lb_keogh(data, L, U, target, distParams={}, use_c = False, use_parallel= False):
+    lb = lb_keogh_distance(data, L, U, use_c, use_parallel)
+    best_fits = np.zeros((data.shape[0],), dtype=np.int )
+
+    if use_c:
+        dtw_c.nearest_neighbour_lb_keogh(data, L, U, target, distParams, use_parallel, best_fits, lb)
+    else:
+        for d in range(data.shape[0]):
+            best_score_so_far = np.inf
+            for t in range(target.shape[0]):
+                if best_score_so_far > lb[d, t]:
+                    score = distance(data[d,:], target[t, :],**distParams)
+                    if score < best_score_so_far:
+                        best_score_so_far = score
+                        best_fits[d]=t
+    
+    return best_fits
+        
+
+
+
+
+'''Equal distance required here'''
+def lb_keogh_distance_fast(data, L, U):
+    return lb_keogh_distance(data, L, U , True, True)
+
+
+def lb_keogh_distance(data, L, U, use_c = False, use_parallel = False):
+    assert(L.shape == U.shape)
+    assert(data.shape[1]==L.shape[1])
+    
+    lb = np.zeros((data.shape[0], L.shape[0]), dtype=DTYPE) 
+
+    if use_c:
+        dtw_c.lb_keogh_distance(data, L, U, use_parallel, lb)
+    else:
+        for d in range(data.shape[0]):
+            for e in range(L.shape[0]):
+                for i in range(L.shape[1]):
+                    ci = data[d, i]
+                    dif = 0
+                    if ci > U[e, i]:
+                        dif = ci - U[e, i]
+                    elif ci < L[e,i]:
+                        dif = - ci + L[e, i]
+                    lb[d,e] = dif *dif
+                lb[d,e]= np.sqrt(lb[d,e])
+    return lb
+
+
+    
+
+
 def lb_keogh(s1, s2, window=None, max_dist=None,
-             max_step=None, max_length_diff=None):
+             max_step=None, max_length_diff=None, use_c=False):
     """Lowerbound LB_KEOGH"""
     # TODO: This implementation slower than distance() in C
+    if use_c:
+        lb_keogh_fast(
+            s1=s1, 
+            s2=s2, 
+            window=window, 
+            max_dist=max_dist, 
+            max_step=max_step, 
+            max_length_diff=max_length_diff
+            )
+
     if window is None:
         window = max(len(s1), len(s2))
 
