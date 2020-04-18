@@ -196,9 +196,9 @@ cdef class ProductQuantizer():
             for i in range(0,self.nrDictionaries):
                 codedData[:, i] = self.dictionaries[i].retrieveCodes(
                     data[:,i*self.subsetSize:min((i+1)*self.subsetSize,data.shape[1])])
-            if self.params.quantizerType is  QuantizerType.PQNeedlemanWunsch:
-                dictionaryCount = dictionaryCount + self.dictionaries[i].kmeans.cluster_centers_.shape[0]
-                codedData[:, i] = codedData[:, i] + dictionaryCount
+                if self.params.quantizerType is  QuantizerType.PQNeedlemanWunsch and i > 0:
+                    dictionaryCount = dictionaryCount + self.dictionaries[i-1].kmeans.cluster_centers_.shape[0]
+                    codedData[:, i] = codedData[:, i] + dictionaryCount
         else:
             test = self.dictionaries[0].retrieveCodes(
                 data[:,0*self.subsetSize:min((0+1)*self.subsetSize,data.shape[1])])
@@ -210,9 +210,9 @@ cdef class ProductQuantizer():
                 codedData[:, 2*i] = self.dictionaries[2*i].retrieveCodes(
                     data[:,i*self.subsetSize:min((i+1)*self.subsetSize,data.shape[1])])
                 if self.params.quantizerType is  QuantizerType.PQNeedlemanWunsch:
-                    dictionaryCount = dictionaryCount + self.dictionaries[2*i-1].kmeans.cluster_centers_.shape[0]
+                    dictionaryCount = dictionaryCount + self.dictionaries[2*i-2].kmeans.cluster_centers_.shape[0]
                     codedData[:, 2*i-1] + dictionaryCount
-                    dictionaryCount = dictionaryCount + self.dictionaries[2*i].kmeans.cluster_centers_.shape[0]
+                    dictionaryCount = dictionaryCount + self.dictionaries[2*i-1].kmeans.cluster_centers_.shape[0]
                     codedData[:, 2*i] + dictionaryCount
         
         return codedData
