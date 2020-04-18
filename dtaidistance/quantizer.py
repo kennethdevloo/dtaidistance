@@ -119,10 +119,7 @@ class PQDictionary():
             return 0
         return self.productQuantisers[int(code)].calculateApprDTWDistanceForData(data1, data2)
 
-
-         # averaging time series makes no sense? reimplement kmeans with averages according to ?
-         # So average according to presentation! (Adapt a kmeans imlementation)
-         # Use a lot more clusters then there are classes-> Support for moving of features betwen subclasses
+# lot more clusters then there are classes-> Support for moving of features betwen subclasses
 
 
 
@@ -192,7 +189,7 @@ class ProductQuantizer():
                         data[:,i*self.subsetSize-self.halfSubsetSize:min((i+1)*self.subsetSize-self.halfSubsetSize,data.shape[1])])
                     codedData[:, 2*i] = self.dictionaries.retrieveCodes(
                         data[:,i*self.subsetSize:min((i+1)*self.subsetSize,data.shape[1])])
-        print(codedData[0:3,:])
+ 
         return codedData
 
     def calculateApprDTWDistanceForCodes(self, code1, code2, data1, data2):

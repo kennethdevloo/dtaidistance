@@ -16,9 +16,9 @@ from collections import deque
 import numpy as np
 
 from .util import SeriesContainer
-from  . import quantizer as qp
-from  . import quantizer_c as qc
+from  . import quantizer_c as qp
 from enum import Enum
+import math
 
 try:
     from tqdm import tqdm
@@ -110,10 +110,12 @@ class HierarchicalWithQuantizer:
         self.quantizer=None
 
     def trainQuantizer(self, data, pqParams):
-        if pqParams.quantizerType is not qc.QuantizerType.PQDICT:
-            self.quantizer = qp.ProductQuantizer(data,pqParams)
-        else:
-            self.quantizer = qc.PyProductQuantizer(data,pqParams)
+        self.quantizer = qp.ProductQuantizer(data,pqParams)
+
+
+    def setQuantizer(self, quantizer):
+        self.quantizer = quantizer
+
 
     def fit(self, series):
         """Merge sequences.
