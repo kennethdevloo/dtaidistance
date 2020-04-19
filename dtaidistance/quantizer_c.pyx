@@ -30,14 +30,9 @@ cpdef enum PQDictionaryCalculator: #NOT IMPLEMENTED
     TADPOLE=1 #Just use R bridge? Not supported right now
 
 
-class DistanceParams():
-    def __init__(self, windowSize = 10, psi = 0):
-        self.windowSize = windowSize
-        self.psi = psi
-
 
 class ProductQuantiserParameters():
-    def __init__(self, subsetSize = 35, dictionarySize = 30, distParams=DistanceParams(), 
+    def __init__(self, subsetSize = 35, dictionarySize = 30, distParams={'window':5, 'psi':0}, 
     withIndex=False, residuals=False, 
     quantizerType=QuantizerType.PQDICT, nwDistParams = {},
     subsetType = SubsetSelectionType.NO_OVERLAP, barycenterMaxIter=25,
@@ -137,10 +132,10 @@ cdef class PQDictionary():
 
     @cython.boundscheck(False) # turn off bounds-checking for entire function
     @cython.wraparound(False)  # turn off negative index wrapping for entire function
-    cpdef double retrieveRecApprDTWDistance(self, int code, np.ndarray[np.double_t, ndim=1] data1, np.ndarray[np.double_t, ndim=1] data2):
+    cpdef double retrieveRecApprDTWDistance(self, int code, np.ndarray[np.double_t, ndim=2] data):
         if self.recursiveLayer is False:
             return 0
-        return self.productQuantisers[code].calculateApprDTWDistanceForData(data1, data2)
+        return self.productQuantisers[code].calculateApprDTWDistanceForData(data)
 
     @cython.boundscheck(False) # turn off bounds-checking for entire function
     @cython.wraparound(False)  # turn off negative index wrapping for entire function
@@ -151,10 +146,29 @@ cdef class PQDictionary():
     @cython.wraparound(False)  # turn off negative index wrapping for entire function
     cdef addScoresToDistMatrix_c(self, np.ndarray[ndim=1, dtype=np.int_t] code, np.ndarray[ndim=2, dtype=np.double_t] dist, np.ndarray[ndim=2, dtype=np.double_t] precalc):
         cdef int i, j 
-        print(len(precalc))
-        for i in range(len(precalc)):
-            for j in range(i+1,len(precalc)):
+        for i in range(len(dist)):
+            for j in range(i+1,len(dist)):
                 dist[i,j] = dist[i,j] + precalc[code[i], code[j]]**2 
+
+    @cython.boundscheck(False) # turn off bounds-checking for entire function
+    @cython.wraparound(False)  # turn off negative index wrapping for entire function
+    cpdef addScoresToDistMatrix_rec(self, np.ndarray[ndim=1, dtype=np.int_t] code, np.ndarray[ndim=2, dtype=np.double_t] dist, np.ndarray[ndim=2, dtype=np.double_t] data):
+        self.addScoresToDistMatrix_rec_c(code, dist, data, self.distanceDTWMatrix)
+
+    @cython.boundscheck(False) # turn off bounds-checking for entire function
+    @cython.wraparound(False)  # turn off negative index wrapping for entire function
+    cdef addScoresToDistMatrix_rec_c(self, np.ndarray[ndim=1, dtype=np.int_t] code, np.ndarray[ndim=2, dtype=np.double_t] dist, np.ndarray[ndim=2, dtype=np.double_t] data, np.ndarray[ndim=2, dtype=np.double_t] precalc):
+        cdef int i, j 
+        cdef np.ndarray[dtype=np.double_t, ndim = 2] sliced 
+        for i in range(len(dist)):
+            for j in range(i+1,len(dist)):
+                if code[i] == code[j]:
+                    sliced=np.zeros((2, data.shape[1]), dtype=np.double)
+                    sliced[0,:] = data[i,:]
+                    sliced[1,:] = data[j,:]
+                    dist[i,j] = dist[i,j] + self.retrieveRecApprDTWDistance(code[i], sliced)
+                else:
+                    dist[i,j] = dist[i,j] + precalc[code[i], code[j]]**2 
 
 cdef class ProductQuantizer():
     cdef int nrDictionaries
@@ -204,13 +218,13 @@ cdef class ProductQuantizer():
         cdef np.ndarray[np.int_t, ndim=2] codedData
         cdef int i, dictionaryCount
         dictionaryCount=0
+
         if self.params.subsetType == SubsetSelectionType.NO_OVERLAP:
-            codedData = np.zeros((data.shape[2],self.nrDictionaries), dtype=np.int)
+            codedData = np.zeros((data.shape[0],self.nrDictionaries), dtype=np.int)
         if self.params.subsetType == SubsetSelectionType.DOUBLE_OVERLAP:
-            #print('priep') 
             codedData = np.zeros((data.shape[0],self.nrDictionaries*2-1), dtype=np.int)
         
-        if self.params.subsetType is SubsetSelectionType.NO_OVERLAP:    
+        if self.params.subsetType == SubsetSelectionType.NO_OVERLAP:    
             for i in range(0,self.nrDictionaries):
                 codedData[:, i] = self.dictionaries[i].retrieveCodes(
                     data[:,i*self.subsetSize:min((i+1)*self.subsetSize,data.shape[1])])
@@ -250,7 +264,8 @@ cdef class ProductQuantizer():
                 return np.sqrt(distance)
             else:
                 return np.sqrt(distance)*(self.nrDictionaries-1)/self.nrDictionaries
-                
+
+        #all this logic is just for layers after recursion (slower, not a matrix operation)
         for i in range(0,code1.shape[0]):
            # print (distance)
             if self.dictionaries[i].recursiveLayer is True and code1[i] == code2[i]:
@@ -288,29 +303,50 @@ cdef class ProductQuantizer():
         self.overlapCorrector = <double>(self.nrDictionaries-1)/<double>(2*self.nrDictionaries-1)
         cdef np.ndarray[np.int_t, ndim=2] codedData = self.retrieveCodedData(data)
         cdef np.ndarray[np.double_t, ndim=2] approximateMatrix = np.zeros((data.shape[0], data.shape[0]))
-        cdef int xi, xj, k
+        cdef int xi, xj, k, i
         approximateMatrix[:]=np.inf
         #print (data.shape[0])
-        if self.dictionaries[0].recursiveLayer or self.params.quantizerType is not QuantizerType.PQDICT:
+        if self.params.quantizerType != QuantizerType.PQDICT:
             for  xi in range(0, data.shape[0]):
                 for xj in range(xi+1, data.shape[0]):
                     approximateMatrix[xi, xj]=self.calculateApprDTWDistanceForCodes(codedData[xi,:], codedData[xj,:], data[xi,:], data[xj,:])
-        else:
+        elif not self.dictionaries[0].recursiveLayer:
             for  xi in range(0, data.shape[0]):
                 for xj in range(xi+1, data.shape[0]):
                     approximateMatrix[xi, xj]= 0
             for k in range(len(self.dictionaries)):
                 self.dictionaries[k].addScoresToDistMatrix(codedData[:,k], approximateMatrix)
-            approximateMatrix = np.sqrt(approximateMatrix)
-        print(approximateMatrix[0:5, 0:5])
+            if self.params.subsetType == SubsetSelectionType.DOUBLE_OVERLAP:
+                approximateMatrix = np.sqrt(approximateMatrix*self.overlapCorrector)
+            else:
+                approximateMatrix = np.sqrt(approximateMatrix)
+            
+        else:#recursing
+            if self.params.subsetType == SubsetSelectionType.DOUBLE_OVERLAP:
+                for  xi in range(0, data.shape[0]):
+                    for xj in range(xi+1, data.shape[0]):
+                        approximateMatrix[xi, xj]= 0
+                for i in range(len(self.dictionaries)):
+                    if i % 2 == 0:
+                        self.dictionaries[i].addScoresToDistMatrix_rec(codedData[:,i], approximateMatrix, data[:,int(i/2*self.subsetSize):int(min((i/2+1)*self.subsetSize,data.shape[1]))] )
+                    else: 
+                        self.dictionaries[i].addScoresToDistMatrix_rec(codedData[:,i], approximateMatrix, data[:,int((i+1)/2*self.subsetSize-self.halfSubsetSize):int(min(((i+1)/2+1)*self.subsetSize-self.halfSubsetSize,data.shape[1]))])
+                approximateMatrix = np.sqrt(approximateMatrix*self.overlapCorrector)
+            else:
+                for  xi in range(0, data.shape[0]):
+                    for xj in range(xi+1, data.shape[0]):
+                        approximateMatrix[xi, xj]= 0
+                for i in range(len(self.dictionaries)):
+                    self.dictionaries[i].addScoresToDistMatrix_rec(codedData[:,i], approximateMatrix, data[:, i*self.subsetSize:min((i+1)*self.subsetSize,data.shape[1])] )
+                approximateMatrix = np.sqrt(approximateMatrix)
 
         return approximateMatrix
 
     @cython.boundscheck(False) # turn off bounds-checking for entire function
     @cython.wraparound(False)  # turn off negative index wrapping for entire function
-    cdef double calculateApprDTWDistanceForData(self, np.ndarray[np.double_t, ndim=1] data1,np.ndarray[np.double_t, ndim=1] data2):
-        cdef np.ndarray[np.int_t, ndim=2] codedData = self.retrieveCodedData(np.array([data1, data2]))
-        return self.calculateApprDTWDistanceForCodes(codedData[0,:], codedData[1,:], data1, data2)
+    cpdef double calculateApprDTWDistanceForData(self, np.ndarray[np.double_t, ndim=2] data):
+        cdef np.ndarray[np.int_t, ndim=2] codedData = self.retrieveCodedData(data)
+        return self.calculateApprDTWDistanceForCodes(codedData[0,:], codedData[1,:], data[0,:], data[1,:])
 
 class PyProductQuantizer():
     def __init__(self, data, pqParams):

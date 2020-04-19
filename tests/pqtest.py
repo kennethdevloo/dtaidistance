@@ -44,7 +44,7 @@ def loadDataSet(file1, file2=None, maxDataPoints = None):
 
     lenTotal = len(X)
     if maxDataPoints is not None:
-        lenTotal = np.min(maxDataPoints, lenTotal) 
+        lenTotal = np.min([maxDataPoints, lenTotal]) 
 
     return X_scaled[0:lenTotal,:], Y[0:lenTotal], lenX, lenX2
 
@@ -374,7 +374,7 @@ def splitData(series, seriesY, ratio, seed = 0):
 
 
 #keoghTest()
-clusterECG5000Test()
-#clusterEcg200Test()
+#clusterECG5000Test()
+clusterEcg200Test()
 #clusterGunPointTest()
 

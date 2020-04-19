@@ -90,7 +90,9 @@ def lb_keogh_distance_fast(data, L, U):
 
 def lb_keogh_distance(data, L, U, use_c = False, use_parallel = False):
     assert(L.shape == U.shape)
-    assert(data.shape[1]==L.shape[1])
+    if data.shape[1]!=L.shape[1]:
+        print('error',data.shape,L.shape[1])
+    #assert(data.shape[1]==L.shape[1])
     
     lb = np.zeros((data.shape[0], L.shape[0]), dtype=DTYPE) 
 
@@ -115,19 +117,10 @@ def lb_keogh_distance(data, L, U, use_c = False, use_parallel = False):
 
 
 def lb_keogh(s1, s2, window=None, max_dist=None,
-             max_step=None, max_length_diff=None, use_c=False):
+             max_step=None, max_length_diff=None):
     """Lowerbound LB_KEOGH"""
     # TODO: This implementation slower than distance() in C
-    if use_c:
-        lb_keogh_fast(
-            s1=s1, 
-            s2=s2, 
-            window=window, 
-            max_dist=max_dist, 
-            max_step=max_step, 
-            max_length_diff=max_length_diff
-            )
-
+    
     if window is None:
         window = max(len(s1), len(s2))
 
