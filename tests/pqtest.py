@@ -374,7 +374,7 @@ def splitData(series, seriesY, ratio, seed = 0):
 
 
 #keoghTest()
-#clusterECG5000Test()
-clusterEcg200Test()
+clusterECG5000Test()
+#clusterEcg200Test()
 #clusterGunPointTest()
 

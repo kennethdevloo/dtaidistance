@@ -1,4 +1,3 @@
-# cython: profile=True
 from enum import Enum
 import numpy as np
 cimport numpy as np
@@ -67,18 +66,23 @@ cdef class PQDictionary():
     cdef object index
     cdef object params
     cdef object kmeans
+    cdef double **dist
+
     cdef object L, U  #enveloppes
     #cdef np.ndarray[np.double_t, ndim=2] distanceDTWMatrix
     cdef public object distanceDTWMatrix
     cdef list productQuantisers
+    cdef int k
     #cdef ProductQuantiserParameters params
     
     def __init__(self, data, pqParams, depth, centers = None):
+        cdef np.ndarray[dtype=np.double_t, ndim = 2] cur_np
         self.recursiveLayer = False
         if  depth+1 < len(pqParams):
             self.recursiveLayer=True 
             self.productQuantisers = []
         self.params=pqParams[depth]
+
 
      
         self.kmeans = TimeSeriesKMeans(metric_params = self.params.metric_params, n_clusters=self.params.dictionarySize,random_state=0,metric="dtw", max_iter_barycenter=self.params.barycenterMaxIter, max_iter=self.params.max_iters).fit(data)
@@ -100,6 +104,8 @@ cdef class PQDictionary():
                 self.distanceDTWMatrix[i,i]=0
                 for j in range(i+1,self.distanceDTWMatrix.shape[0]):
                     self.distanceDTWMatrix[j,i] = self.distanceDTWMatrix[i,j]
+
+
 
     @cython.boundscheck(False) # turn off bounds-checking for entire function
     @cython.wraparound(False)  # turn off negative index wrapping for entire function
@@ -136,7 +142,19 @@ cdef class PQDictionary():
             return 0
         return self.productQuantisers[code].calculateApprDTWDistanceForData(data1, data2)
 
+    @cython.boundscheck(False) # turn off bounds-checking for entire function
+    @cython.wraparound(False)  # turn off negative index wrapping for entire function
+    cpdef addScoresToDistMatrix(self, np.ndarray[ndim=1, dtype=np.int_t] code, np.ndarray[ndim=2, dtype=np.double_t] dist):
+        self.addScoresToDistMatrix_c(code, dist, self.distanceDTWMatrix)
 
+    @cython.boundscheck(False) # turn off bounds-checking for entire function
+    @cython.wraparound(False)  # turn off negative index wrapping for entire function
+    cdef addScoresToDistMatrix_c(self, np.ndarray[ndim=1, dtype=np.int_t] code, np.ndarray[ndim=2, dtype=np.double_t] dist, np.ndarray[ndim=2, dtype=np.double_t] precalc):
+        cdef int i, j 
+        print(len(precalc))
+        for i in range(len(precalc)):
+            for j in range(i+1,len(precalc)):
+                dist[i,j] = dist[i,j] + precalc[code[i], code[j]]**2 
 
 cdef class ProductQuantizer():
     cdef int nrDictionaries
@@ -216,12 +234,15 @@ cdef class ProductQuantizer():
                     codedData[:, 2*i] + dictionaryCount
         
         return codedData
+
+
     @cython.boundscheck(False) # turn off bounds-checking for entire function
     @cython.wraparound(False)  # turn off negative index wrapping for entire function
-    cdef calculateApprDTWDistanceForCodes(self, np.ndarray[np.int_t, ndim=1] code1, np.ndarray[np.int_t, ndim=1] code2, np.ndarray[np.double_t, ndim=1] data1, np.ndarray[np.double_t, ndim=1] data2):
+    cdef double calculateApprDTWDistanceForCodes(self, np.ndarray[np.int_t, ndim=1] code1, np.ndarray[np.int_t, ndim=1] code2, np.ndarray[np.double_t, ndim=1] data1, np.ndarray[np.double_t, ndim=1] data2):
         cdef double distance = 0.0
         cdef int i
         cdef object m
+        cdef np.ndarray[dtype=np.double_t, ndim=2] speedUp
 
         if self.params.quantizerType==QuantizerType.PQNeedlemanWunsch or self.params.quantizerType==QuantizerType.VQNeedlemanWunsch:
             distance,m =needleman_wunsch(code1, code2,substitutionMatrix=self.substitution, **(self.params.nwDistParams))
@@ -248,28 +269,41 @@ cdef class ProductQuantizer():
                             data2[int((i+1)/2*self.subsetSize-self.halfSubsetSize):int(min(((i+1)/2+1)*self.subsetSize-self.halfSubsetSize,data2.shape[0]))])**2
             else:
                 #print(self.dictionaries[i].distanceDTWMatrix[code1[i], code2[i]], 'distadd', i)
-                distance = distance + self.dictionaries[i].distanceDTWMatrix[code1[i], code2[i]]**2#retrieveApprDTWDistance(code1[i], code2[i])**2
+                speedUp = self.dictionaries[i].distanceDTWMatrix
+                distance = distance+speedUp[code1[i], code2[i]]**2#retrieveApprDTWDistance(code1[i], code2[i])**2
         
         #print ('dist',distance, self.overlapCorrector)
         if self.params.subsetType is SubsetSelectionType.NO_OVERLAP:
             return np.sqrt(distance)
         else:
             return np.sqrt(distance*self.overlapCorrector)
+
+
     @cython.boundscheck(False) # turn off bounds-checking for entire function
     @cython.wraparound(False)  # turn off negative index wrapping for entire function
     cpdef public constructApproximateDTWDistanceMatrix(self,data):
         return self.constructApproximateDTWDistanceMatrixExecute(data)
 
-    cdef constructApproximateDTWDistanceMatrixExecute(self, np.ndarray[np.double_t, ndim = 2] data):
+    cdef np.ndarray[np.double_t, ndim=2] constructApproximateDTWDistanceMatrixExecute(self, np.ndarray[np.double_t, ndim = 2] data):
         self.overlapCorrector = <double>(self.nrDictionaries-1)/<double>(2*self.nrDictionaries-1)
         cdef np.ndarray[np.int_t, ndim=2] codedData = self.retrieveCodedData(data)
         cdef np.ndarray[np.double_t, ndim=2] approximateMatrix = np.zeros((data.shape[0], data.shape[0]))
+        cdef int xi, xj, k
         approximateMatrix[:]=np.inf
         #print (data.shape[0])
-        for xi in range(0, data.shape[0]):
-            for xj in range(xi+1, data.shape[0]):
-                approximateMatrix[xi, xj]=self.calculateApprDTWDistanceForCodes(codedData[xi,:], codedData[xj,:], data[xi,:], data[xj,:])
-                
+        if self.dictionaries[0].recursiveLayer or self.params.quantizerType is not QuantizerType.PQDICT:
+            for  xi in range(0, data.shape[0]):
+                for xj in range(xi+1, data.shape[0]):
+                    approximateMatrix[xi, xj]=self.calculateApprDTWDistanceForCodes(codedData[xi,:], codedData[xj,:], data[xi,:], data[xj,:])
+        else:
+            for  xi in range(0, data.shape[0]):
+                for xj in range(xi+1, data.shape[0]):
+                    approximateMatrix[xi, xj]= 0
+            for k in range(len(self.dictionaries)):
+                self.dictionaries[k].addScoresToDistMatrix(codedData[:,k], approximateMatrix)
+            approximateMatrix = np.sqrt(approximateMatrix)
+        print(approximateMatrix[0:5, 0:5])
+
         return approximateMatrix
 
     @cython.boundscheck(False) # turn off bounds-checking for entire function
