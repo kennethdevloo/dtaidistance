@@ -58,21 +58,22 @@ def lb_keogh_enveloppes(data, window=None , use_c = False):
     return L,U
 
 '''Getr nearest neighbour, sped up lb_keogh implementation'''
-def nearest_neighbour_lb_keogh_fast(data, L, U, target, distParams={}, use_c = False, use_parallel= False):
-    return nearest_neighbour_lb_keogh(data, L, U, target, distParams, True, True)
+def nearest_neighbour_lb_keogh_fast(data, L, U, target, distParams={}, lb = None, use_c = False, use_parallel= False):
+    return nearest_neighbour_lb_keogh(data, L, U, target, distParams, lb, True, True)
 
-def nearest_neighbour_lb_keogh(data, L, U, target, distParams={}, use_c = False, use_parallel= False):
-    lb = lb_keogh_distance(data, L, U, use_c, use_parallel)
+def nearest_neighbour_lb_keogh(data, L, U, target, distParams={}, lb = None, use_c = False, use_parallel= False):
+    if lb is None:
+        lb = lb_keogh_distance(data, L, U, use_c, use_parallel)
     best_fits = np.zeros((data.shape[0],), dtype=np.int )
 
     if use_c:
-        dtw_c.nearest_neighbour_lb_keogh(data, L, U, target, distParams, use_parallel, best_fits, lb)
+        dtw_c.nearest_neighbour_lb_keogh(data, target, distParams, use_parallel, best_fits, lb)
     else:
         for d in range(data.shape[0]):
             best_score_so_far = np.inf
             for t in range(target.shape[0]):
                 if best_score_so_far > lb[d, t]:
-                    score = distance(data[d,:], target[t, :],**distParams)
+                    score = distance(data[d,:], target[t, :],**distParams, max_dist=best_score_so_far)
                     if score < best_score_so_far:
                         best_score_so_far = score
                         best_fits[d]=t
@@ -90,9 +91,7 @@ def lb_keogh_distance_fast(data, L, U):
 
 def lb_keogh_distance(data, L, U, use_c = False, use_parallel = False):
     assert(L.shape == U.shape)
-    if data.shape[1]!=L.shape[1]:
-        print('error',data.shape,L.shape[1])
-    #assert(data.shape[1]==L.shape[1])
+    assert(data.shape[1]==L.shape[1])
     
     lb = np.zeros((data.shape[0], L.shape[0]), dtype=DTYPE) 
 

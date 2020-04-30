@@ -38,7 +38,7 @@ cdef double inf = np.inf
 
 @cython.boundscheck(False) # turn off bounds-checking for entire function
 @cython.wraparound(False)  # turn off negative index wrapping for entire function
-cpdef nearest_neighbour_lb_keogh(np.ndarray[DTYPE_t, ndim=2] data, np.ndarray[DTYPE_t, ndim=2] L, np.ndarray[DTYPE_t, ndim=2] U, np.ndarray[DTYPE_t, ndim=2] target, distParams, use_parallel, np.ndarray[np.int_t, ndim=1] best_fits, np.ndarray[DTYPE_t, ndim=2] lb):
+cpdef nearest_neighbour_lb_keogh(np.ndarray[DTYPE_t, ndim=2] data, np.ndarray[DTYPE_t, ndim=2] target, distParams, use_parallel, np.ndarray[np.int_t, ndim=1] best_fits, np.ndarray[DTYPE_t, ndim=2] lb):
     cdef int d, t
     cdef double best_score_so_far, score
 
@@ -49,8 +49,7 @@ cpdef nearest_neighbour_lb_keogh(np.ndarray[DTYPE_t, ndim=2] data, np.ndarray[DT
         best_score_so_far = np.inf
         for t in range(target.shape[0]):
             if best_score_so_far > lb[d, t]:
-    #           s1, s2 = , target[t, :]
-                score = distance_nogil_c(&data[d,0],&target[t,0],data.shape[1], target.shape[1], window,0,0, 0, 0,  psi)
+                score = distance_nogil_c(&data[d,0],&target[t,0],data.shape[1], target.shape[1], window,best_score_so_far,0, 0, 0,  psi)
                 if score < best_score_so_far:
                     best_score_so_far = score
                     best_fits[d]=t
@@ -60,11 +59,19 @@ cpdef nearest_neighbour_lb_keogh(np.ndarray[DTYPE_t, ndim=2] data, np.ndarray[DT
 cpdef lb_keogh_distance(np.ndarray[DTYPE_t, ndim=2] data, np.ndarray[DTYPE_t, ndim=2] L, np.ndarray[DTYPE_t, ndim=2] U, bint use_parallel, np.ndarray[DTYPE_t, ndim=2] lb):
     cdef int d, e, i
     cdef DTYPE_t ci, dif
-    use_parallel = False
     if use_parallel:
-        #with nogil:
-        #    for d in prange(data.shape[0]):
-        pass
+        with nogil:
+            for d in prange(data.shape[0]):
+                for e in range(L.shape[0]):
+                    for i in range(L.shape[1]):
+                        ci = data[d, i]
+                        dif = 0
+                        if ci > U[e, i]:
+                            dif = ci - U[e, i]
+                        elif ci < L[e,i]:
+                            dif = - ci + L[e, i]
+                        lb[d,e] = lb[d,e]+dif*dif
+        lb = np.sqrt(lb)
     else:
         for d in range(data.shape[0]):
             for e in range(L.shape[0]):

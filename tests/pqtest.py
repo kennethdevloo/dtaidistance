@@ -29,6 +29,9 @@ def condenseDists(dists):
         idx += dists.shape[0] - r - 1
     return dists_cond
 
+def zNormalize(X):
+    return (X-np.mean(X,axis=1,keepdims=True)/np.std(X, axis=1,keepdims=True))
+
 def loadDataSet(file1, file2=None, maxDataPoints = None):
     X = np.loadtxt(file1)
     lenX = len(X)
@@ -40,7 +43,8 @@ def loadDataSet(file1, file2=None, maxDataPoints = None):
         X=np.concatenate((X, X2))
 
     Y= X[:,-1]
-    X_scaled = preprocessing.scale(X[:,0:-1])
+
+    X_scaled = zNormalize(X[:,0:-1])
 
     lenTotal = len(X)
     if maxDataPoints is not None:
@@ -50,7 +54,7 @@ def loadDataSet(file1, file2=None, maxDataPoints = None):
 
 
 def loadEcg500DataSetForClustering():
-    return loadDataSet('ECG5000_TRAIN.txt', 'ECG5000_TEST.txt',1000)
+    return loadDataSet('ECG5000_TRAIN.txt', 'ECG5000_TEST.txt',2000)
     
 
 def loadEcg200DataSetForClustering():
@@ -202,7 +206,7 @@ def clusterGunPointTest():
     nwDistParams={'window': 1, 'psi': None}
     #generalClusterParams = {'dists_merger':clustering.singleLinkageUpdater, 'min_clusters':10}
     generalClusterParams = {'dists_merger':None, 'min_clusters':5}
-    pqClusterParams = {'k':2500, 'quantizer_usage':clustering.QuantizerUsage.TOP_K_ONLY_AT_INITIALISATION}
+    pqClusterParams = {'k':400, 'quantizer_usage':clustering.QuantizerUsage.TOP_K_ONLY_AT_INITIALISATION}
     
     qParams=[]
     qParams.append(q.ProductQuantiserParameters(25,30,distParams=distParams, subsetType=q.SubsetSelectionType.DOUBLE_OVERLAP))
@@ -222,7 +226,7 @@ def clusterGunPointTest():
     distanceAndClusterTests(XTrain,XTest, qParams, distParams, generalClusterParams, pqClusterParams)
 
 def keoghTest():
-    X,_=loadEcg200DataSetForClustering()
+    X,n,m,k=loadEcg200DataSetForClustering()
     Xt = X[43:45, 0:4]-2.0 
     X = X[2:3, 0:4]
 
@@ -231,10 +235,10 @@ def keoghTest():
     print(L)
     print(U)
     lb = dtw.lb_keogh_distance_fast(Xt, L, U)
-    print(Xt)
+    lb[:]=0
+    dtw.nearest_neighbour_lb_keogh_fast(Xt, L,U, X, lb=lb)
     print(lb)
-
-    print(dtw.distance_matrix_fast(Xt,window=1))
+    #print(dtw.distance_matrix_fast(Xt,window=1))
     
 
 def clusterEcg200Test():
@@ -244,12 +248,12 @@ def clusterEcg200Test():
     distParams={'window': 5, 'psi': 0}
     nwDistParams={'window': 2, 'psi': 0}
     #generalClusterParams = {'dists_merger':clustering.singleLinkageUpdater, 'min_clusters':10}
-    generalClusterParams = {'dists_merger':None, 'min_clusters':10}
-    pqClusterParams = {'k':20,'quantizer_usage':clustering.QuantizerUsage.TOP_K}
+    generalClusterParams = {'dists_merger':None, 'min_clusters':20}
+    pqClusterParams = {'k':5,'quantizer_usage':clustering.QuantizerUsage.ONLY_APPROXIMATES}
     
     
     qParams=[]
-    qParams.append(q.ProductQuantiserParameters(32,75,distParams=distParams, subsetType=q.SubsetSelectionType.DOUBLE_OVERLAP, kmeansWindowSize=kmWindowSize))
+    qParams.append(q.ProductQuantiserParameters(32,75,distParams=distParams, subsetType=q.SubsetSelectionType.DOUBLE_OVERLAP, kmeansWindowSize=kmWindowSize, distanceCalculation=q.DISTANCECALCULATION.SYMMETRIC))
     #qParams.append(q.ProductQuantiserParameters(9,2))
 
     qNWParams=[]
@@ -269,15 +273,21 @@ def clusterEcg200Test():
 def clusterECG5000Test():
     ratio = 0.15
     seed = 0
-    distParams={'window': 10, 'psi': 1}
+    distParams={'window': 15, 'psi': 0}
+    quantizationDistParams={'window': 5, 'psi': 0}
     nwDistParams={'window': 2, 'psi': 0}
+    kmeansWindowSize=10
     #generalClusterParams = {'dists_merger':clustering.singleLinkageUpdater, 'min_clusters':10}
     generalClusterParams = {'dists_merger':None, 'min_clusters':10}
-    pqClusterParams = {'k':20,'quantizer_usage':clustering.QuantizerUsage.TOP_K}
+    pqClusterParams = {'k':1000,'quantizer_usage':clustering.QuantizerUsage.ONLY_APPROXIMATES}
     
     qParams=[]
-    qParams.append(q.ProductQuantiserParameters(35,10,distParams=distParams, subsetType=q.SubsetSelectionType.DOUBLE_OVERLAP))
-    #qParams.append(q.ProductQuantiserParameters(9,4))
+    qParams.append(q.ProductQuantiserParameters(35,70,distParams=distParams, 
+        subsetType=q.SubsetSelectionType.DOUBLE_OVERLAP,
+        kmeansWindowSize=kmeansWindowSize,
+        distanceCalculation=q.DISTANCECALCULATION.SYMMETRIC,
+        quantizationDistParams=quantizationDistParams))
+    qParams.append(q.ProductQuantiserParameters(9,4,computeDistanceCorrection=False))
 
     qNWParams=[]
     qNWParams.append(q.ProductQuantiserParameters(20,40,
@@ -301,6 +311,9 @@ def trainQuantizer(XTrain, qParams):
 def calcTrue(XTest, distParams):
     return dtaidistance.dtw.distance_matrix_fast(XTest, **distParams)
 
+def calcPred(pq, XTest):
+    return pq.constructApproximateDTWDistanceMatrix(XTest)
+
 def distanceAndClusterTests(XTrain,XTest, qParams, distParams, generalClusterParams, pqClusterParams, seed = 0):
     print('Init distance test')
     pq = trainQuantizer(XTrain, qParams)
@@ -319,7 +332,7 @@ def distanceTest(pq, XTest, distParams, seed = 0):
     print('regular Calc done')
     
     print('approximate')
-    pred = pq.constructApproximateDTWDistanceMatrix(XTest)
+    pred = calcPred(pq,XTest)
     print('approximating done')
     #print(pred[0:5, 0:5])
     #print(truth[0:5, 0:5])
@@ -374,7 +387,8 @@ def splitData(series, seriesY, ratio, seed = 0):
 
 
 #keoghTest()
-#clusterECG5000Test()
-clusterEcg200Test()
+clusterECG5000Test()
+#clusterEcg200Test()
 #clusterGunPointTest()
+#keoghTest()
 
