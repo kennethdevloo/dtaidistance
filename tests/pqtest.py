@@ -139,8 +139,6 @@ def scoreDistanceMatrices(truth, pred, nb_series, triangleTries = 10000):
 #    print('Pearson', stats.pearsonr(np.argsort(conDistTruth), np.argsort(conDistPred)))
     triangularisationScore = triangularTest(pred, triangleTries)/triangularTest(truth, triangleTries)
 
-    print(me, rmse, spearManCorrelation, spearManP, triangularisationScore)
-
     return me, rmse, spearManCorrelation, spearManP, triangularisationScore
 
 #idx1 is th reference truth

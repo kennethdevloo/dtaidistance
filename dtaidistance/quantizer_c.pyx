@@ -286,7 +286,6 @@ cdef class ProductQuantizer():
         sumRatio = 0.0
         cnt = 0.0
         pred = self.constructApproximateDTWDistanceMatrix(data)
-        print(data)
         truth = distance_matrix(data, **self.params.distParams)
         for i in range(0, len(pred)):
             for j in range(i+1, len(pred)):
