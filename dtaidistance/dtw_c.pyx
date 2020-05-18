@@ -35,6 +35,48 @@ ctypedef np.double_t DTYPE_t
 cdef double inf = np.inf
 
 
+@cython.boundscheck(False) # turn off bounds-checking for entire function
+@cython.wraparound(False)  # turn off negative index wrapping for entire function
+cpdef k_nearest_neighbour_lb_keogh(np.ndarray[DTYPE_t, ndim=2] data, np.ndarray[DTYPE_t, ndim=2] target, int k, distParams, use_parallel, np.ndarray[np.int_t, ndim=2] best_fits, np.ndarray[DTYPE_t, ndim=2] best_dists, np.ndarray[DTYPE_t, ndim=2] lb):
+    cdef int d, t, current_highest_fit_index
+    cdef double kth_best_dist_so_far, score
+
+    cdef int window = distParams['window']
+    cdef int psi = distParams['psi']
+
+    cdef np.ndarray[DTYPE_t, ndim=2] best_dists_so_far
+    cdef np.ndarray[np.int_t, ndim=2] best_fits_so_far
+
+    best_dists_so_far = np.zeros((k,1), dtype=np.double)
+    best_fits_so_far = np.zeros((k,1), dtype=np.int)
+    for d in range(data.shape[0]):
+        best_dists_so_far[:]=np.inf
+        best_fits_so_far[:]=0
+        kth_best_dist_so_far = np.inf
+        current_highest_fit_index = 0 
+        for t in range(target.shape[0]):
+            if kth_best_dist_so_far > lb[d, t]:
+                score = distance_nogil_c(&data[d,0],&target[t,0],data.shape[1], target.shape[1], window,kth_best_dist_so_far,0, 0, 0,  psi)
+                if score < kth_best_dist_so_far:
+                    best_dists_so_far[current_highest_fit_index] = score
+                    best_fits_so_far[current_highest_fit_index]=t
+                    current_highest_fit_index = np.argmax(best_dists_so_far)
+                    kth_best_dist_so_far=best_dists_so_far[current_highest_fit_index]
+
+        best_fits[d]=best_fits_so_far
+        best_dists[d]=best_dists_so_far
+
+
+    for d in range(data.shape[0]):
+        best_score_so_far = np.inf
+        for t in range(target.shape[0]):
+            if best_score_so_far > lb[d, t]:
+                score = distance_nogil_c(&data[d,0],&target[t,0],data.shape[1], target.shape[1], window,best_score_so_far,0, 0, 0,  psi)
+                if score < best_score_so_far:
+                    best_score_so_far = score
+                    best_fits[d]=t
+
+
 
 @cython.boundscheck(False) # turn off bounds-checking for entire function
 @cython.wraparound(False)  # turn off negative index wrapping for entire function

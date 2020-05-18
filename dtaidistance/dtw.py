@@ -58,10 +58,10 @@ def lb_keogh_enveloppes(data, window=None , use_c = False):
     return L,U
 
 '''Getr nearest neighbour, sped up lb_keogh implementation'''
-def nearest_neighbour_lb_keogh_fast(data, L, U, target, distParams={}, lb = None, use_c = False, use_parallel= False):
-    return nearest_neighbour_lb_keogh(data, L, U, target, distParams, lb, True, True)
+def nearest_neighbour_lb_keogh_fast(data,target, L=None, U=None , distParams={}, lb = None):
+    return nearest_neighbour_lb_keogh(data, target, L, U, distParams, lb, True, True)
 
-def nearest_neighbour_lb_keogh(data, L, U, target, distParams={}, lb = None, use_c = False, use_parallel= False):
+def nearest_neighbour_lb_keogh(data, target, L=None, U=None, distParams={}, lb = None, use_c = False, use_parallel= False):
     if lb is None:
         lb = lb_keogh_distance(data, L, U, use_c, use_parallel)
     best_fits = np.zeros((data.shape[0],), dtype=np.int )
@@ -79,6 +79,42 @@ def nearest_neighbour_lb_keogh(data, L, U, target, distParams={}, lb = None, use
                         best_fits[d]=t
     
     return best_fits
+
+    '''Getr nearest neighbour, sped up lb_keogh implementation'''
+def k_nearest_neighbour_lb_keogh_fast(data, k, target, L=None, U=None, distParams={}, lb = None):
+    return k_nearest_neighbour_lb_keogh(data, k, L, U, target, distParams, lb, True, True)
+
+def k_nearest_neighbour_lb_keogh(data, k, target, L=None, U=None, distParams={}, lb = None, use_c = False, use_parallel= False):
+    assert(k>0)
+
+    if lb is None:
+        lb = lb_keogh_distance(data, L, U, use_c, use_parallel)
+    best_fits = np.zeros((data.shape[0],k), dtype=np.int )
+    best_dists = np.zeros((data.shape[0],k), dtype=np.double )
+
+    if use_c:
+        dtw_c.k_nearest_neighbour_lb_keogh(data, target, k, distParams, use_parallel, best_fits, best_dists, lb)
+    else:
+        best_dists_so_far = np.zeros((k,1), dtype=np.double)
+        best_fits_so_far = np.zeros((k,1), dtype=np.int)
+        for d in range(data.shape[0]):
+            best_dists_so_far[:]=np.inf
+            best_fits_so_far[:]=0
+            kth_best_dist_so_far = np.inf
+            current_highest_fit_index = 0 
+            for t in range(target.shape[0]):
+                if kth_best_dist_so_far > lb[d, t]:
+                    score = distance(data[d,:], target[t, :],**distParams, max_dist=kth_best_dist_so_far)
+                    if score < kth_best_dist_so_far:
+                        best_dists_so_far[current_highest_fit_index] = score
+                        best_fits_so_far[current_highest_fit_index]=t
+                        current_highest_fit_index = np.argmax(best_dists_so_far)
+                        kth_best_dist_so_far=best_dists_so_far[current_highest_fit_index]
+
+            best_fits[d]=best_fits_so_far
+            best_dists[d]=best_dists_so_far
+    
+    return best_fits, best_scores
         
 
 

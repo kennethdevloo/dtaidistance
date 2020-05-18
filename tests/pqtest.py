@@ -15,6 +15,8 @@ from matplotlib import pyplot as plt
 
 from tslearn.clustering import TimeSeriesKMeans
 from scipy import stats
+import random
+    
 
 def _size_cond( size):
         n = int(size)
@@ -32,25 +34,38 @@ def condenseDists(dists):
 def zNormalize(X):
     return (X-np.mean(X,axis=1,keepdims=True)/np.std(X, axis=1,keepdims=True))
 
-def loadDataSet(file1, file2=None, maxDataPoints = None):
+def loadDataSet(file1, file2=None, maxTrainDataPoints = None, maxTestDataPoints = None, seed = 0):
     X = np.loadtxt(file1)
-    lenX = len(X)
-    lenX2 = 0
 
-    if file2 is not None:
-        X2 = np.loadtxt(file2)
-        lenX2 = len(X2)
-        X=np.concatenate((X, X2))
 
-    Y= X[:,-1]
+    X2 = np.loadtxt(file2)
 
-    X_scaled = zNormalize(X[:,0:-1])
+    Y= X[:,0]
+    X_scaled = zNormalize(X[:,1:len(X[0])])
 
-    lenTotal = len(X)
-    if maxDataPoints is not None:
-        lenTotal = np.min([maxDataPoints, lenTotal]) 
+    Y2= X2[:,0]
+    X2_scaled = zNormalize(X2[:,1:len(X2[0])])
 
-    return X_scaled[0:lenTotal,:], Y[0:lenTotal], lenX, lenX2
+    random.seed(seed)
+    if maxTrainDataPoints is not None and maxTrainDataPoints < len(X):
+        nb_series = len(X_scaled)
+        nb_samples=maxTrainDataPoints
+        indiceList = [ i for i in range(nb_series)]
+        random.shuffle(indiceList)
+        samples = indiceList[0:nb_samples]
+        X_scaled = X_scaled[samples]
+        Y = Y[samples] 
+
+    if maxTestDataPoints is not None and maxTestDataPoints < len(X2):
+        nb_series = len(X2_scaled)
+        nb_samples=maxTestDataPoints
+        indiceList = [ i for i in range(nb_series)]
+        random.shuffle(indiceList)
+        samples = indiceList[0:nb_samples]
+        X2_scaled = X2_scaled[samples]
+        Y2 = Y2[samples] 
+
+    return X_scaled, Y, X2_scaled, Y2 
 
 
 def loadEcg500DataSetForClustering():
@@ -197,95 +212,28 @@ def printClusters(idx):
 
 
 
-def clusterGunPointTest():
-    ratio = 0.2
-    seed = 0
-    distParams={'window': 10, 'psi': 0}
-    nwDistParams={'window': 1, 'psi': None}
-    #generalClusterParams = {'dists_merger':clustering.singleLinkageUpdater, 'min_clusters':10}
-    generalClusterParams = {'dists_merger':None, 'min_clusters':5}
-    pqClusterParams = {'k':400, 'quantizer_usage':clustering.QuantizerUsage.TOP_K_ONLY_AT_INITIALISATION}
-    
-    qParams=[]
-    qParams.append(q.ProductQuantiserParameters(25,30,distParams=distParams, subsetType=q.SubsetSelectionType.DOUBLE_OVERLAP))
-    #qParams.append(q.ProductQuantiserParameters(9,4))
-
-    qNWParams=[]
-    qNWParams.append(q.ProductQuantiserParameters(2,2,
-    quantizerType=q.QuantizerType.PQNeedlemanWunsch,nwDistParams=nwDistParams, distParams=distParams, subsetType=q.SubsetSelectionType.NO_OVERLAP))
-
-    qNWPileParams=[]
-    qNWPileParams.append(q.ProductQuantiserParameters(6,4,
-    quantizerType=q.QuantizerType.VQNeedlemanWunsch,nwDistParams=nwDistParams, distParams=distParams))
-
-    X,Y=loadGunPointDataSetForClustering()
-    XTrain, YTrain, XTest, YTest = splitData(X,Y, ratio, seed)
-
-    distanceAndClusterTests(XTrain,XTest, qParams, distParams, generalClusterParams, pqClusterParams)
-
-def keoghTest():
-    X,n,m,k=loadEcg200DataSetForClustering()
-    Xt = X[43:45, 0:4]-2.0 
-    X = X[2:3, 0:4]
-
-    L, U  = dtw.lb_keogh_enveloppes(X, 1, False)
-    #print (X)
-    print(L)
-    print(U)
-    lb = dtw.lb_keogh_distance_fast(Xt, L, U)
-    lb[:]=0
-    dtw.nearest_neighbour_lb_keogh_fast(Xt, L,U, X, lb=lb)
-    print(lb)
-    #print(dtw.distance_matrix_fast(Xt,window=1))
-    
-
-def clusterEcg200Test():
-    ratio = 0.3
-    seed = 0
-    kmWindowSize = 0
-    distParams={'window': 5, 'psi': 0}
-    nwDistParams={'window': 2, 'psi': 0}
-    #generalClusterParams = {'dists_merger':clustering.singleLinkageUpdater, 'min_clusters':10}
-    generalClusterParams = {'dists_merger':None, 'min_clusters':20}
-    pqClusterParams = {'k':5,'quantizer_usage':clustering.QuantizerUsage.ONLY_APPROXIMATES}
-    
-    
-    qParams=[]
-    qParams.append(q.ProductQuantiserParameters(32,75,distParams=distParams, subsetType=q.SubsetSelectionType.DOUBLE_OVERLAP, kmeansWindowSize=kmWindowSize, distanceCalculation=q.DISTANCECALCULATION.SYMMETRIC))
-    #qParams.append(q.ProductQuantiserParameters(9,2))
-
-    qNWParams=[]
-    qNWParams.append(q.ProductQuantiserParameters(16,40,
-    quantizerType=q.QuantizerType.PQNeedlemanWunsch,nwDistParams=nwDistParams, distParams=distParams, subsetType=q.SubsetSelectionType.DOUBLE_OVERLAP))
-
-    qNWPileParams=[]
-    qNWPileParams.append(q.ProductQuantiserParameters(16,20,
-    quantizerType=q.QuantizerType.VQNeedlemanWunsch,nwDistParams=nwDistParams, distParams=distParams, subsetType=q.SubsetSelectionType.DOUBLE_OVERLAP))
-
-    X,Y,_,_=loadEcg200DataSetForClustering()
-    XTrain, YTrain, XTest, YTest = splitData(X,Y, ratio, seed)
-
-    distanceAndClusterTests(XTrain,XTest, qParams, distParams, generalClusterParams, pqClusterParams)
-
-
 def clusterECG5000Test():
+    traionSize = 500
+    valSize = 1500
+    testSize = 3000
     ratio = 0.15
     seed = 0
-    distParams={'window': 15, 'psi': 0}
+    distParams={'window': 14, 'psi': 0}
     quantizationDistParams={'window': 5, 'psi': 0}
     nwDistParams={'window': 2, 'psi': 0}
     kmeansWindowSize=10
     #generalClusterParams = {'dists_merger':clustering.singleLinkageUpdater, 'min_clusters':10}
-    generalClusterParams = {'dists_merger':None, 'min_clusters':10}
+    generalClusterParams = {'dists_merger':None, 'min_clusters':5}
     pqClusterParams = {'k':1000,'quantizer_usage':clustering.QuantizerUsage.ONLY_APPROXIMATES}
     
     qParams=[]
-    qParams.append(q.ProductQuantiserParameters(35,70,distParams=distParams, 
+    qParams.append(q.ProductQuantiserParameters(35,50,distParams=distParams, 
         subsetType=q.SubsetSelectionType.DOUBLE_OVERLAP,
         kmeansWindowSize=kmeansWindowSize,
-        distanceCalculation=q.DISTANCECALCULATION.SYMMETRIC,
+        distanceCalculation=q.DISTANCECALCULATION.ASYMMETRIC,
+        computeDistanceCorrection = False,
         quantizationDistParams=quantizationDistParams))
-    qParams.append(q.ProductQuantiserParameters(9,4,computeDistanceCorrection=False))
+    #qParams.append(q.ProductQuantiserParameters(9,4,computeDistanceCorrection=False))
 
     qNWParams=[]
     qNWParams.append(q.ProductQuantiserParameters(20,40,
@@ -295,11 +243,10 @@ def clusterECG5000Test():
     qNWPileParams.append(q.ProductQuantiserParameters(20,20,
     quantizerType=q.QuantizerType.VQNeedlemanWunsch,nwDistParams=nwDistParams, distParams=distParams, subsetType=q.SubsetSelectionType.DOUBLE_OVERLAP))
     
-    X,Y,_,_=loadEcg500DataSetForClustering()
-    print('data loaded, size', X.shape)
-    XTrain, YTrain, XTest, YTest = splitData(X,Y, ratio, seed)
+    XTrain,YTrain,XTest,YTest=loadEcg500DataSetForClustering()
+    XVal, YVal, XTest, YTest = take2RandDataParts(XTest,YTest,valSize, testSize, seed)
 
-    distanceAndClusterTests(XTrain,XTest, qParams, distParams, generalClusterParams, pqClusterParams)
+    distanceAndClusterTests(XTrain,XVal, qParams, distParams, generalClusterParams, pqClusterParams)
     
 
 def trainQuantizer(XTrain, qParams):
@@ -372,8 +319,16 @@ def clusterTest(pq,XTest, distParams, generalClusterParams, pqClusterParams ):
     jaccard, ari = equaliseClusterLabelsAndCalculateScores(cluster_idxN, cluster_idx, XTest)
     return {'jaccard':jaccard, 'ari':ari }
 
+def take2RandDataParts(series, seriesY, len1, len2, seed = 0 ):
+    nb_series = len(series)
+    random.seed(seed)
+    indiceList = [ i for i in range(nb_series)]
+    random.shuffle(indiceList)
+    samples = indiceList[0:len1]
+    testData = indiceList[len1:len2]
+    return series[samples], seriesY[samples], series[testData], seriesY[testData]
+
 def splitData(series, seriesY, ratio, seed = 0):
-    import random
     nb_series = len(series)
     random.seed(seed)
     nb_samples=int(min(nb_series,ratio*nb_series))
