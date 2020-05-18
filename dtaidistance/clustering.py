@@ -17,6 +17,7 @@ import numpy as np
 
 from .util import SeriesContainer
 from  . import quantizer_c as qp
+from  .dba_c import performDBA
 from enum import Enum
 import math
 
@@ -68,6 +69,26 @@ class QuantizerUsage(Enum):
     ONLY_APPROXIMATES = 1
     TOP_K = 2  #means the lowest K values will be recalculated
     TOP_K_ONLY_AT_INITIALISATION = 3
+
+
+'''https://github.com/fpetitjean/DBA/tree/master/cython kmeans with DBA'''
+
+
+
+class KMeansTimeSeries:
+
+    def __init__(self, dists_fun, dists_options, n_clusters=0,n_iters=10,
+                 dba_params = {}, show_progress=True):
+        self.dists_fun = dists_fun
+        self.dists_options = dists_options
+        self.n_iters=n_iters
+        self.n_clusters = min_clusters
+        self.show_progress = show_progress
+        self._cluster_centers  = None
+        
+    def fit(self, series):
+      pass
+
 
 
 class HierarchicalWithQuantizer:

@@ -4,10 +4,12 @@ cimport numpy as np
 import math
 cimport cython
 from cython.parallel import prange
-from .dtw import lb_keogh_distance_fast, distance_matrix_fast as distance_matrix, nearest_neighbour_lb_keogh_fast, k_nearest_neighbour_lb_keogh_fast, lb_keogh_enveloppes_fast, distance_fast
+from .dtw import lb_keogh_distance_fast, distance_matrix_fast as distance_matrix, nearest_neighbour_lb_keogh_fast,  lb_keogh_enveloppes_fast, distance_fast
 from .alignment import needleman_wunsch,  SparseSubstitutionMatrix
 
 from tslearn.clustering import TimeSeriesKMeans
+
+from tslearn.utils import to_time_series_dataset
 
 
 
@@ -40,7 +42,7 @@ class ProductQuantiserParameters():
     withIndex=False, 
     quantizerType=QuantizerType.PQDICT, nwDistParams = {},
     subsetType = SubsetSelectionType.NO_OVERLAP, barycenterMaxIter=10,
-    max_iters =12, kmeansWindowSize = 0, useLbKeoghToFit = True, computeDistanceCorrection = True,
+    max_iters =10, kmeansWindowSize = 0, useLbKeoghToFit = True, computeDistanceCorrection = True,
     distanceCalculation = DISTANCECALCULATION.SYMMETRIC):
         self.subsetSize=subsetSize
         self.dictionarySize=dictionarySize
@@ -57,7 +59,7 @@ class ProductQuantiserParameters():
         if kmeansWindowSize == 0:
             self.metric_params = None
         else:
-            self.metric_params = {'global_constraint':"sakoe_chiba", 'sakoe_chiba_radius':kmeansWindowSize}
+            self.metric_params = {"global_constraint":"sakoe_chiba", "sakoe_chiba_radius":kmeansWindowSize}
         self.nwDistParams=nwDistParams
         self.distanceCalculation = distanceCalculation
 
@@ -88,7 +90,7 @@ cdef class PQDictionary():
 
 
      
-        self.kmeans = TimeSeriesKMeans(metric_params = self.params.metric_params, n_clusters=self.params.dictionarySize,random_state=0,metric="dtw", max_iter_barycenter=self.params.barycenterMaxIter, max_iter=self.params.max_iters).fit(data)
+        self.kmeans = TimeSeriesKMeans(metric_params = self.params.metric_params, n_clusters=self.params.dictionarySize,random_state=0,verbose = 0,metric="dtw", max_iter_barycenter=self.params.barycenterMaxIter, max_iter=self.params.max_iters).fit(to_time_series_dataset(data))
         self.LQuant, self.UQuant = lb_keogh_enveloppes_fast(np.reshape(self.kmeans.cluster_centers_, (self.kmeans.cluster_centers_.shape[0],self.kmeans.cluster_centers_.shape[1])), self.params.quantizationDistParams['window'])
         self.LApprox, self.UApprox = lb_keogh_enveloppes_fast(np.reshape(self.kmeans.cluster_centers_, (self.kmeans.cluster_centers_.shape[0],self.kmeans.cluster_centers_.shape[1])), self.params.distParams['window'])
         if self.params.withIndex or self.recursiveLayer:
@@ -232,13 +234,7 @@ cdef class PQDictionary():
                     dist[i,j] = dist[i,j] + precalc[code[i], code[j]]**2
 
 
-    @cython.boundscheck(False) # turn off bounds-checking for entire function
-    @cython.wraparound(False)  # turn off negative index wrapping for entire function
-    cpdef getKNearestIndexes(self,int k, np.ndarray[np.double_t, ndim=2] data ):
-        if data.ndim ==2:
-            return k_nearest_neighbour_lb_keogh_fast(data, k,self.LQuant, self.UQuant, self.getCodeBook(), self.params.quantizationDistParams)
-        else:
-            return np.reshape((k,),k_nearest_neighbour_lb_keogh_fast(np.reashape((1, len(data)), data), k,self.LQuant, self.UQuant, self.getCodeBook(), self.params.quantizationDistParams))
+   
 
 
     def switchDistanceCalculation(self,dc):
@@ -504,24 +500,7 @@ cdef class ProductQuantizer():
         For each datapoint, for each codebook, determine all w nearest codes 
         Create set of all indexed datapoints
     '''
-    cpdef getKNNIndexOneQuery(self, np.ndarray[np.double_t,ndim=2] data, int k):
-        cdef np.ndarray[np.int_t, ndim =1] dbIndexes, out
-        out = np.ndarray([], dtype=int)
-        cdef int i, j 
-        
-        for i in range(len(self.dictionaries)):
-            if self.params.subsetType == SubsetSelectionType.DOUBLE_OVERLAP:   
-                if i % 2 == 0:
-                    dbIndexes = self.dictionaries[i].getKNearestIndexes(k, data[int(i/2*self.subsetSize):int(min((i/2+1)*self.subsetSize,data.shape[1]))] )
-                else: 
-                    dbIndexes = self.dictionaries[i].getKNearestIndexes(k, data[int((i+1)/2*self.subsetSize-self.halfSubsetSize):int(min(((i+1)/2+1)*self.subsetSize-self.halfSubsetSize,data.shape[1]))])
-            else:
-                dbIndexes = self.dictionaries[i].getKNearestIndexes(k,data[i*self.subsetSize:min((i+1)*self.subsetSize,data.shape[1])])
-            for j in range(len(dbIndexes)):
-                out = np.concatenate([out, self.dictionaries[i].index[dbIndexes[j]]], axis = 0)
-        return np.unique(out)
-    
-
+   
     def switchDistanceCalculation(self,dc):
         self.params.distanceCalculation=dc
         for i in range(len(self.dictionaries)):
@@ -536,9 +515,6 @@ class PyProductQuantizer():
     def switchDistanceCalculation(self,dc = DISTANCECALCULATION.SYMMETRIC):
         self.pq.switchDistanceCalculation(dc)
 
-
-    def indexData(self, data):
-        self.pq.indexData(data)
 
 
     def constructApproximateDTWDistanceMatrix(self, data):

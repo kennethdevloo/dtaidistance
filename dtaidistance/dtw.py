@@ -62,6 +62,8 @@ def nearest_neighbour_lb_keogh_fast(data,target, L=None, U=None , distParams={},
     return nearest_neighbour_lb_keogh(data, target, L, U, distParams, lb, True, True)
 
 def nearest_neighbour_lb_keogh(data, target, L=None, U=None, distParams={}, lb = None, use_c = False, use_parallel= False):
+    #adapt if L is None or U is None:
+
     if lb is None:
         lb = lb_keogh_distance(data, L, U, use_c, use_parallel)
     best_fits = np.zeros((data.shape[0],), dtype=np.int )
@@ -143,7 +145,7 @@ def lb_keogh_distance(data, L, U, use_c = False, use_parallel = False):
                         dif = ci - U[e, i]
                     elif ci < L[e,i]:
                         dif = - ci + L[e, i]
-                    lb[d,e] = dif *dif
+                    lb[d,e] =lb[d,e]+ dif *dif
                 lb[d,e]= np.sqrt(lb[d,e])
     return lb
 

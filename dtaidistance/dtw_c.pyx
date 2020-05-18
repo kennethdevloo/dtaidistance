@@ -101,7 +101,7 @@ cpdef nearest_neighbour_lb_keogh(np.ndarray[DTYPE_t, ndim=2] data, np.ndarray[DT
 cpdef lb_keogh_distance(np.ndarray[DTYPE_t, ndim=2] data, np.ndarray[DTYPE_t, ndim=2] L, np.ndarray[DTYPE_t, ndim=2] U, bint use_parallel, np.ndarray[DTYPE_t, ndim=2] lb):
     cdef int d, e, i
     cdef DTYPE_t ci, dif
-    if use_parallel:
+    if False:
         with nogil:
             for d in prange(data.shape[0]):
                 for e in range(L.shape[0]):
