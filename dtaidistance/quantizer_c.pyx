@@ -24,15 +24,12 @@ cpdef enum DISTANCECALCULATION:
     #IN ASYM CASE: Create INV INDEX ->
     EXACT_WHEM_0DIST=2 #ALTERNATIVE TO RECURSION  
     ASYMMETRIC_KEOGH_WHEM_0DIST=3 
+    RECURSION=4
 
 cpdef enum QuantizerType:
     PQDICT=0 
     PQNeedlemanWunsch=1
     VQNeedlemanWunsch=2 
-
-cpdef enum PQDictionaryCalculator: #NOT IMPLEMENTED
-    KMEANS=0 #Uses tslearm, add barycentrix mean + kmeans to dtaidistance
-    TADPOLE=1 #Just use R bridge? Not supported right now
 
 
 
@@ -42,8 +39,8 @@ class ProductQuantiserParameters():
     withIndex=False, 
     quantizerType=QuantizerType.PQDICT, nwDistParams = {},
     subsetType = SubsetSelectionType.NO_OVERLAP, barycenterMaxIter=10,
-    max_iters =10, kmeansWindowSize = 0, useLbKeoghToFit = True, computeDistanceCorrection = True,
-    distanceCalculation = DISTANCECALCULATION.SYMMETRIC):
+    max_iters =0, kmeansWindowSize = 0, useLbKeoghToFit = True, computeDistanceCorrection = True,
+    distanceCalculation = DISTANCECALCULATION.ASYMMETRIC):
         self.subsetSize=subsetSize
         self.dictionarySize=dictionarySize
         self.distParams= distParams
@@ -90,7 +87,11 @@ cdef class PQDictionary():
 
 
      
-        self.kmeans = TimeSeriesKMeans(metric_params = self.params.metric_params, n_clusters=self.params.dictionarySize,random_state=0,verbose = 0,metric="dtw", max_iter_barycenter=self.params.barycenterMaxIter, max_iter=self.params.max_iters).fit(to_time_series_dataset(data))
+        self.kmeans = TimeSeriesKMeans(metric_params = self.params.metric_params, n_clusters=self.params.dictionarySize,random_state=0,verbose = 0,metric="dtw", max_iter_barycenter=self.params.barycenterMaxIter, max_iter=self.params.max_iters)
+        if self.params.dictionarySize == len(data):
+            self.kmeans.cluster_centers_=np.reshape(data,(data.shape[0], data.shape[1],1)).copy()
+        else: 
+            self.kmeans.fit(to_time_series_dataset(data))
         self.LQuant, self.UQuant = lb_keogh_enveloppes_fast(np.reshape(self.kmeans.cluster_centers_, (self.kmeans.cluster_centers_.shape[0],self.kmeans.cluster_centers_.shape[1])), self.params.quantizationDistParams['window'])
         self.LApprox, self.UApprox = lb_keogh_enveloppes_fast(np.reshape(self.kmeans.cluster_centers_, (self.kmeans.cluster_centers_.shape[0],self.kmeans.cluster_centers_.shape[1])), self.params.distParams['window'])
         if self.params.withIndex or self.recursiveLayer:
@@ -108,6 +109,18 @@ cdef class PQDictionary():
                 self.distanceDTWMatrix[i,i]=0
                 for j in range(i+1,self.distanceDTWMatrix.shape[0]):
                     self.distanceDTWMatrix[j,i] = self.distanceDTWMatrix[i,j]
+
+
+    @cython.boundscheck(False) # turn off bounds-checking for entire function
+    @cython.wraparound(False)  # turn off negative index wrapping for entire function
+    cpdef executePrecalculations(self):
+        self.LQuant, self.UQuant = lb_keogh_enveloppes_fast(np.reshape(self.kmeans.cluster_centers_, (self.kmeans.cluster_centers_.shape[0],self.kmeans.cluster_centers_.shape[1])), self.params.quantizationDistParams['window'])
+        self.LApprox, self.UApprox = lb_keogh_enveloppes_fast(np.reshape(self.kmeans.cluster_centers_, (self.kmeans.cluster_centers_.shape[0],self.kmeans.cluster_centers_.shape[1])), self.params.distParams['window'])
+        self.distanceDTWMatrix = distance_matrix(np.reshape(self.kmeans.cluster_centers_ ,(self.kmeans.cluster_centers_.shape[0],self.kmeans.cluster_centers_.shape[1])),**self.params.distParams )
+        for i in range(0,self.distanceDTWMatrix.shape[0]):
+            self.distanceDTWMatrix[i,i]=0
+            for j in range(i+1,self.distanceDTWMatrix.shape[0]):
+                self.distanceDTWMatrix[j,i] = self.distanceDTWMatrix[i,j]
 
 
     @cython.boundscheck(False) # turn off bounds-checking for entire function
@@ -232,6 +245,13 @@ cdef class PQDictionary():
                     dist[i,j] = dist[i,j] + max(lb[i,code[j]], lb[j,code[i]]) **2
                 else:
                     dist[i,j] = dist[i,j] + precalc[code[i], code[j]]**2
+
+
+    def resetParamsAndPrecalculate(self, pqParams, depth = 0):
+        self.params = pqParams[depth]  
+        self.executePrecalculations()
+        for pq in self.productQuantisers:
+            pq.resetParamsAndPrecalculate(pqParams, depth+1)
 
 
    
@@ -405,7 +425,7 @@ cdef class ProductQuantizer():
                 approximateMatrix[xi, xj]= 0
 
         if self.params.quantizerType != QuantizerType.PQDICT:
-            print('Working with keogh NW')
+            print('Working with NW')
             for  xi in range(0, data.shape[0]):
                 for xj in range(xi+1, data.shape[0]):
                     approximateMatrix[xi, xj]=self.calculateApprDTWDistanceForCodes(codedData[xi,:], codedData[xj,:], data[xi,:], data[xj,:])
@@ -456,7 +476,7 @@ cdef class ProductQuantizer():
                     self.dictionaries[i].addScoresToDistMatrix_keogh0(codedData[:,i], approximateMatrix, data[:, i*self.subsetSize:min((i+1)*self.subsetSize,data.shape[1])] )
         
             
-        elif not self.dictionaries[0].recursiveLayer:
+        elif self.params.distanceCalculation == DISTANCECALCULATION.SYMMETRIC:
             print('Working with regular symmetric')
             for k in range(len(self.dictionaries)):
                 self.dictionaries[k].addScoresToDistMatrix(codedData[:,k], approximateMatrix)
@@ -465,7 +485,7 @@ cdef class ProductQuantizer():
             else:
                 approximateMatrix = np.sqrt(approximateMatrix)
             
-        else:#recursing
+        else:#recursing  self.params.distanceCalculation == DISTANCECALCULATION.RECURSION
             print('Working with recursuve replacements')
             if self.params.subsetType == SubsetSelectionType.DOUBLE_OVERLAP:
                 for i in range(len(self.dictionaries)):
@@ -501,19 +521,30 @@ cdef class ProductQuantizer():
         Create set of all indexed datapoints
     '''
    
-    def switchDistanceCalculation(self,dc):
-        self.params.distanceCalculation=dc
+
+    def resetParamsAndPrecalculate(self, pqParams, depth = 0):
+        self.params = pqParams[0]  
         for i in range(len(self.dictionaries)):
-            self.dictionaries[i].params.switchDistanceCalculation(dc)
+            self.dictionaries[i]..resetParamsAndPrecalculate(pqParams, depth)
 
 
 class PyProductQuantizer():
     def __init__(self, data, pqParams):
         self.pq = ProductQuantizer(data, pqParams)
 
-    #only for testing purposes
-    def switchDistanceCalculation(self,dc = DISTANCECALCULATION.SYMMETRIC):
-        self.pq.switchDistanceCalculation(dc)
+    
+    '''redo hyp[erpparams, invoke reprecalculation with ther distance aparams, no recaulculation of codebooks!
+        This functionality is there for quick testing purposes and is more a hack than a real functionality.
+        use case examples:
+            Change the handling of 0distance
+            Chaneg window size of precalculation 
+        not example use cases:
+            Chanmeg dictionary/subset size
+            recalculate underestimate/overestimatecorrection (no data provided)
+            Change amount of recusrsion layer (But could turn of recursion)
+    ''''
+    def resetParamsAndPrecalculate(self, pqParams):
+        self.pq.resetParamsAndPrecalculate(pqParams)
 
 
 

@@ -17,7 +17,7 @@ import numpy as np
 
 from .util import SeriesContainer
 from  . import quantizer_c as qp
-from  .dba_c import performDBA
+#from  .dba_c import performDBA
 from enum import Enum
 import math
 
@@ -158,7 +158,7 @@ class HierarchicalWithQuantizer:
         cluster_idx = dict()
         dists = self.quantizer.constructApproximateDTWDistanceMatrix(series)
         realVal = np.zeros((dists.shape[0], dists.shape[1]), dtype=np.uint8)
-        print('finished distance approcimation')
+        print('finished distance approximation')
        # print (dists)
 
         if self.quantizer_usage is QuantizerUsage.ONLY_APPROXIMATES:
