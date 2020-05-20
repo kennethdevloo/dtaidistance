@@ -1,5 +1,6 @@
 from enum import Enum
 import numpy as np
+import pickle
 cimport numpy as np
 import math
 cimport cython
@@ -60,6 +61,7 @@ class ProductQuantiserParameters():
         self.nwDistParams=nwDistParams
         self.distanceCalculation = distanceCalculation
 
+#@cython.auto_pickle(True) 
 cdef class PQDictionary():
     cdef public bint recursiveLayer
     cdef int depth
@@ -84,12 +86,11 @@ cdef class PQDictionary():
             self.recursiveLayer=True 
             self.productQuantisers = []
         self.params=pqParams[depth]
-
-
      
-        self.kmeans = TimeSeriesKMeans(metric_params = self.params.metric_params, n_clusters=self.params.dictionarySize,random_state=0,verbose = 0,metric="dtw", max_iter_barycenter=self.params.barycenterMaxIter, max_iter=self.params.max_iters)
+        self.kmeans = TimeSeriesKMeans(metric_params = self.params.metric_params, n_clusters=self.params.dictionarySize,random_state=0,verbose = 0,metric="dtw", max_iter_barycenter=self.params.barycenterMaxIter, max_iter=self.params.max_iters, init = "k-means++")
         if self.params.dictionarySize == len(data):
             self.kmeans.cluster_centers_=np.reshape(data,(data.shape[0], data.shape[1],1)).copy()
+
         else: 
             self.kmeans.fit(to_time_series_dataset(data))
         self.LQuant, self.UQuant = lb_keogh_enveloppes_fast(np.reshape(self.kmeans.cluster_centers_, (self.kmeans.cluster_centers_.shape[0],self.kmeans.cluster_centers_.shape[1])), self.params.quantizationDistParams['window'])
@@ -260,6 +261,9 @@ cdef class PQDictionary():
     def switchDistanceCalculation(self,dc):
         self.params.distanceCalculation=dc
 
+
+
+@cython.auto_pickle(True)
 cdef class ProductQuantizer():
     cdef int nrDictionaries
     cdef int subsetSize
@@ -434,7 +438,7 @@ cdef class ProductQuantizer():
             for i in range(len(self.dictionaries)):
                # self.dictionaries[k].createIndex(codedData[:,i])
                 if self.params.subsetType == SubsetSelectionType.NO_OVERLAP:
-                    assymDists = self.dictionaries[k].retrieveAsymDists(data[:, i*self.subsetSize:min((i+1)*self.subsetSize,data.shape[1])]) 
+                    assymDists = self.dictionaries[i].retrieveAsymDists(data[:, i*self.subsetSize:min((i+1)*self.subsetSize,data.shape[1])]) 
                 elif self.params.subsetType == SubsetSelectionType.DOUBLE_OVERLAP:
                     if i%2 == 0:
                         assymDists = self.dictionaries[i].retrieveAsymDists(data[:,int(i/2*self.subsetSize):int(min((i/2+1)*self.subsetSize,data.shape[1]))])
@@ -525,12 +529,18 @@ cdef class ProductQuantizer():
     def resetParamsAndPrecalculate(self, pqParams, depth = 0):
         self.params = pqParams[0]  
         for i in range(len(self.dictionaries)):
-            self.dictionaries[i]..resetParamsAndPrecalculate(pqParams, depth)
+            self.dictionaries[i].resetParamsAndPrecalculate(pqParams, depth)
 
 
 class PyProductQuantizer():
-    def __init__(self, data, pqParams):
+    def __init__(self, data=None, pqParams=None):
+        if pqParams is None:
+            print('no params, load from file?')
         self.pq = ProductQuantizer(data, pqParams)
+
+    def loadFromFile(self, fileName):
+        pickle_in = open(fileName,"rb")
+        self.pq = pickle.load(pickle_in)
 
     
     '''redo hyp[erpparams, invoke reprecalculation with ther distance aparams, no recaulculation of codebooks!
@@ -542,7 +552,7 @@ class PyProductQuantizer():
             Chanmeg dictionary/subset size
             recalculate underestimate/overestimatecorrection (no data provided)
             Change amount of recusrsion layer (But could turn of recursion)
-    ''''
+    '''
     def resetParamsAndPrecalculate(self, pqParams):
         self.pq.resetParamsAndPrecalculate(pqParams)
 
@@ -552,4 +562,9 @@ class PyProductQuantizer():
         v=self.pq.constructApproximateDTWDistanceMatrix(data)
        # print(v[1:6,1:6])
         return v
+
+    def save(self, fileName):
+        pickle_out = open(fileName,"wb")
+        pickle.dump(self.pq, pickle_out)
+        pickle_out.close()
 
