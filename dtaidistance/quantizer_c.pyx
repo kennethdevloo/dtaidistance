@@ -276,6 +276,7 @@ cdef class ProductQuantizer():
     #ProductQuantiserParameters params
 
     def __init__(self,data, pqParams, depth=0):
+        self.overlapCorrector = 1.0
         cdef int i 
         cdef np.ndarray[dtype=np.double_t, ndim=2] codeBook, L, U
         
@@ -417,6 +418,8 @@ cdef class ProductQuantizer():
     cpdef public constructApproximateDTWDistanceMatrix(self,data):
         return self.constructApproximateDTWDistanceMatrixExecute(data)
 
+    @cython.boundscheck(False) # turn off bounds-checking for entire function
+    @cython.wraparound(False)  # turn off negative index wrapping for entire function
     cdef np.ndarray[np.double_t, ndim=2] constructApproximateDTWDistanceMatrixExecute(self, np.ndarray[np.double_t, ndim = 2] data):
         self.overlapCorrector = <double>(self.nrDictionaries)/<double>(2*self.nrDictionaries-1)
         cdef np.ndarray[np.int_t, ndim=2] codedData = self.retrieveCodedData(data)
@@ -478,7 +481,7 @@ cdef class ProductQuantizer():
             else:
                 for i in range(len(self.dictionaries)):
                     self.dictionaries[i].addScoresToDistMatrix_keogh0(codedData[:,i], approximateMatrix, data[:, i*self.subsetSize:min((i+1)*self.subsetSize,data.shape[1])] )
-        
+                approximateMatrix = np.sqrt(approximateMatrix)
             
         elif self.params.distanceCalculation == DISTANCECALCULATION.SYMMETRIC:
             print('Working with regular symmetric')
