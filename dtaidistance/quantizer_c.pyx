@@ -41,7 +41,7 @@ class ProductQuantiserParameters():
     quantizerType=QuantizerType.PQDICT, nwDistParams = {},
     subsetType = SubsetSelectionType.NO_OVERLAP, barycenterMaxIter=10,
     max_iters =0, kmeansWindowSize = 0, useLbKeoghToFit = True, computeDistanceCorrection = True,
-    distanceCalculation = DISTANCECALCULATION.ASYMMETRIC):
+    distanceCalculation = DISTANCECALCULATION.ASYMMETRIC, km_init = "k-means++"):
         self.subsetSize=subsetSize
         self.dictionarySize=dictionarySize
         self.distParams= distParams
@@ -54,6 +54,7 @@ class ProductQuantiserParameters():
         self.max_iters=max_iters
         self.useLbKeoghToFit = useLbKeoghToFit
         self.computeDistanceCorrection=computeDistanceCorrection
+        self.km_init=km_init
         if kmeansWindowSize == 0:
             self.metric_params = None
         else:
@@ -86,8 +87,7 @@ cdef class PQDictionary():
             self.recursiveLayer=True 
             self.productQuantisers = []
         self.params=pqParams[depth]
-     
-        self.kmeans = TimeSeriesKMeans(metric_params = self.params.metric_params, n_clusters=self.params.dictionarySize,random_state=0,verbose = 0,metric="dtw", max_iter_barycenter=self.params.barycenterMaxIter, max_iter=self.params.max_iters, init = "k-means++")
+        self.kmeans = TimeSeriesKMeans(metric_params = self.params.metric_params, n_clusters=self.params.dictionarySize,random_state=0,verbose = 0,metric="dtw", max_iter_barycenter=self.params.barycenterMaxIter, max_iter=self.params.max_iters, init = self.params.km_init)
         if self.params.dictionarySize == len(data):
             self.kmeans.cluster_centers_=np.reshape(data,(data.shape[0], data.shape[1],1)).copy()
 
@@ -263,7 +263,6 @@ cdef class PQDictionary():
 
 
 
-@cython.auto_pickle(True)
 cdef class ProductQuantizer():
     cdef int nrDictionaries
     cdef int subsetSize
@@ -323,7 +322,7 @@ cdef class ProductQuantizer():
         truth = distance_matrix(data, **self.params.distParams)
         for i in range(0, len(pred)):
             for j in range(i+1, len(pred)):
-                if pred[i,j] and truth[i,j] !=0:
+                if pred[i,j]>0.01 and truth[i,j] >0.01:
                     sumRatio = sumRatio + truth[i,j]/pred[i,j]
                     cnt = cnt +1.0
         self.distanceRatio = sumRatio / cnt
@@ -348,7 +347,7 @@ cdef class ProductQuantizer():
                 codedData[:, i] = self.dictionaries[i].retrieveCodes(
                     data[:,i*self.subsetSize:min((i+1)*self.subsetSize,data.shape[1])])
                 if self.params.quantizerType ==  QuantizerType.PQNeedlemanWunsch and i > 0:
-                    dictionaryCount = dictionaryCount + self.dictionaries[i-1].kmeans.cluster_centers_.shape[0]
+                    dictionaryCount = dictionaryCount + self.dictionaries[i-1].getCodeBook().shape[0]
                     codedData[:, i] = codedData[:, i] + dictionaryCount
         else:
             test = self.dictionaries[0].retrieveCodes(
@@ -361,9 +360,9 @@ cdef class ProductQuantizer():
                 codedData[:, 2*i] = self.dictionaries[2*i].retrieveCodes(
                     data[:,i*self.subsetSize:min((i+1)*self.subsetSize,data.shape[1])])
                 if self.params.quantizerType ==  QuantizerType.PQNeedlemanWunsch:
-                    dictionaryCount = dictionaryCount + self.dictionaries[2*i-2].kmeans.cluster_centers_.shape[0]
+                    dictionaryCount = dictionaryCount + self.dictionaries[2*i-2].getCodeBook().shape[0]
                     codedData[:, 2*i-1] + dictionaryCount
-                    dictionaryCount = dictionaryCount + self.dictionaries[2*i-1].kmeans.cluster_centers_.shape[0]
+                    dictionaryCount = dictionaryCount + self.dictionaries[2*i-1].getCodeBook().shape[0]
                     codedData[:, 2*i] + dictionaryCount
         
         return codedData
@@ -382,7 +381,7 @@ cdef class ProductQuantizer():
             if self.params.subsetType == SubsetSelectionType.NO_OVERLAP:
                 return np.sqrt(distance)
             else:
-                return np.sqrt(distance)*(self.nrDictionaries-1)/self.nrDictionaries
+                return np.sqrt(distance*self.overlapCorrector)
 
         #all this logic is just for layers after recursion (slower, not a matrix operation)
         for i in range(0,code1.shape[0]):
@@ -493,7 +492,7 @@ cdef class ProductQuantizer():
                 approximateMatrix = np.sqrt(approximateMatrix)
             
         else:#recursing  self.params.distanceCalculation == DISTANCECALCULATION.RECURSION
-            print('Working with recursuve replacements')
+            print('Working with recursive replacements')
             if self.params.subsetType == SubsetSelectionType.DOUBLE_OVERLAP:
                 for i in range(len(self.dictionaries)):
                     if i % 2 == 0:
@@ -534,6 +533,11 @@ cdef class ProductQuantizer():
         for i in range(len(self.dictionaries)):
             self.dictionaries[i].resetParamsAndPrecalculate(pqParams, depth)
 
+    def switchDistanceCalculation(self,dc):
+        self.params.distanceCalculation=dc
+        for dic in self.dictionaries:
+            dic.switchDistanceCalculation(dc)
+
 
 class PyProductQuantizer():
     def __init__(self, data=None, pqParams=None):
@@ -559,6 +563,9 @@ class PyProductQuantizer():
     def resetParamsAndPrecalculate(self, pqParams):
         self.pq.resetParamsAndPrecalculate(pqParams)
 
+    def switchDistanceCalculation(self, dc):
+        self.pq.switchDistanceCalculation(dc)
+
 
 
     def constructApproximateDTWDistanceMatrix(self, data):
@@ -566,8 +573,5 @@ class PyProductQuantizer():
        # print(v[1:6,1:6])
         return v
 
-    def save(self, fileName):
-        pickle_out = open(fileName,"wb")
-        pickle.dump(self.pq, pickle_out)
-        pickle_out.close()
+ 
 

@@ -53,11 +53,12 @@ class SparseSubstitutionMatrix():
         high = int(max(el1, el2))
         if self.distances[low, high] == np.inf:
             self.distances[low, high]=distance(self.data[low,:], self.data[high,:], 
-            **self.distParams)
+            **self.distParams, use_c=True)
 
         d = (self.distances[low, high])**2
+
         #encourage teh flexibility here by not using a penalty
-        d_indel=0
+        d_indel=d
         return d, d_indel
         
         
