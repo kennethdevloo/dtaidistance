@@ -431,12 +431,12 @@ cdef class ProductQuantizer():
                 approximateMatrix[xi, xj]= 0
 
         if self.params.quantizerType != QuantizerType.PQDICT:
-            print('Working with NW')
+           # print('Working with NW')
             for  xi in range(0, data.shape[0]):
                 for xj in range(xi+1, data.shape[0]):
                     approximateMatrix[xi, xj]=self.calculateApprDTWDistanceForCodes(codedData[xi,:], codedData[xj,:], data[xi,:], data[xj,:])
         elif self.params.distanceCalculation == DISTANCECALCULATION.ASYMMETRIC:
-            print('Working with assymetric quantizer')
+           # print('Working with assymetric quantizer')
             for i in range(len(self.dictionaries)):
                # self.dictionaries[k].createIndex(codedData[:,i])
                 if self.params.subsetType == SubsetSelectionType.NO_OVERLAP:
@@ -455,7 +455,7 @@ cdef class ProductQuantizer():
                 approximateMatrix = np.sqrt(approximateMatrix)
 
         elif self.params.distanceCalculation == DISTANCECALCULATION.EXACT_WHEM_0DIST:
-            print('Working with exact replacements')
+           # print('Working with exact replacements')
             if self.params.subsetType == SubsetSelectionType.DOUBLE_OVERLAP:
                 for i in range(len(self.dictionaries)):
                     if i % 2 == 0:
@@ -469,7 +469,7 @@ cdef class ProductQuantizer():
                 approximateMatrix = np.sqrt(approximateMatrix)
 
         elif self.params.distanceCalculation == DISTANCECALCULATION.ASYMMETRIC_KEOGH_WHEM_0DIST:
-            print('Working with keogh replacements')
+           # print('Working with keogh replacements')
             if self.params.subsetType == SubsetSelectionType.DOUBLE_OVERLAP:
                 for i in range(len(self.dictionaries)):
                     if i % 2 == 0:
@@ -483,7 +483,7 @@ cdef class ProductQuantizer():
                 approximateMatrix = np.sqrt(approximateMatrix)
             
         elif self.params.distanceCalculation == DISTANCECALCULATION.SYMMETRIC:
-            print('Working with regular symmetric')
+           # print('Working with regular symmetric')
             for k in range(len(self.dictionaries)):
                 self.dictionaries[k].addScoresToDistMatrix(codedData[:,k], approximateMatrix)
             if self.params.subsetType == SubsetSelectionType.DOUBLE_OVERLAP:
@@ -492,7 +492,7 @@ cdef class ProductQuantizer():
                 approximateMatrix = np.sqrt(approximateMatrix)
             
         else:#recursing  self.params.distanceCalculation == DISTANCECALCULATION.RECURSION
-            print('Working with recursive replacements')
+         #   print('Working with recursive replacements')
             if self.params.subsetType == SubsetSelectionType.DOUBLE_OVERLAP:
                 for i in range(len(self.dictionaries)):
                     if i % 2 == 0:

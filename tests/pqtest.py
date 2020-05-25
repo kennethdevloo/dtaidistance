@@ -32,6 +32,7 @@ def condenseDists(dists):
     return dists_cond
 
 def zNormalize(X):
+    #return X
     return (X-np.mean(X,axis=1,keepdims=True)/np.std(X, axis=1,keepdims=True))
 
 def loadDataSet(file1, file2=None, maxTrainDataPoints = None, maxTestDataPoints = None, seed = 0):
@@ -178,17 +179,17 @@ def scoreDistanceMatrices(truth, pred, nb_series, triangleTries = 10000):
     return me, rmse, spearManCorrelation, spearManP, triangularisationScore, r
 
 #idx1 is th reference truth
-def equaliseClusterLabelsAndCalculateScores(idx1, idx2, X):
+def equaliseClusterLabelsAndCalculateScores(idx1, idx2, X=None):
     jaccard=0
     ari=0
-
     keyList1 = getKeys(idx1)
     keyList2 = getKeys(idx2)
 
     keyChanges = dict()
 
     dists = np.full((len(idx2), len(idx1)), -1, dtype=np.float32)
-
+    #print(idx1)
+    #print(idx2)
     for key2Id in range(len(keyList2)):
         key2=keyList2[key2Id]
         for key1Id in range(len(keyList1)):
@@ -208,13 +209,19 @@ def equaliseClusterLabelsAndCalculateScores(idx1, idx2, X):
         dists[:, max_idxs[0,1]]=-1
 
     newClust ={}
+
     for i in keyChanges.items():
         newClust[i[1]]=idx2[i[0]]
 #        changeKeyName(idx2, i[0], i[1])
     idx2=newClust
 
+
     pred = convertToLabelArray(idx2, X.shape[0])
     truth = convertToLabelArray(idx1, X.shape[0]) 
+    #print(pred)
+    #print(truth)
+    #print(truth[0:20])
+    #print(pred[0:20])
     ari = adjusted_rand_score(truth, pred)
 
     keyList2 = getKeys(idx2)
@@ -245,8 +252,9 @@ def clusterECG5000Test():
     nwDistParams={'window': 2, 'psi': 0}
     kmeansWindowSize=2
     #generalClusterParams = {'dists_merger':clustering.singleLinkageUpdater, 'min_clusters':10}
-    generalClusterParams = {'dists_merger':None, 'min_clusters':5}
-    pqClusterParams = {'k':40000,'quantizer_usage':clustering.QuantizerUsage.ONLY_APPROXIMATES}
+    generalClusterParams = {'dists_merger':clustering.singleLinkageUpdater, 'min_clusters':20}
+    
+    pqClusterParams = {'k':120000,'quantizer_usage':clustering.QuantizerUsage.TOP_K_ONLY_AT_INITIALISATION}
     
 
     qParams=[]
@@ -256,13 +264,18 @@ def clusterECG5000Test():
         distanceCalculation=q.DISTANCECALCULATION.SYMMETRIC,
         computeDistanceCorrection = True,
         quantizationDistParams=quantizationDistParams,
+        #km_init="random",
         max_iters=2))
         
   
     XTrain,YTrain,XTest,YTest=loadEcg500DataSetForClustering(traionSize, testSize+valSize)
     XVal, YVal, XTest, YTest = take2RandDataParts(XTest,YTest,valSize, testSize, seed)
     #print(YVal[1500:1700], np.unique(YVal))
-    distanceAndClusterTests(XTrain,XVal, qParams, distParams, generalClusterParams, pqClusterParams)
+    rclust =  createRealClustering(YVal,5)
+    rclust = None
+    #print(YVal)
+
+    distanceAndClusterTests(XTrain,XTest, qParams, distParams, generalClusterParams, pqClusterParams,groundTruth=rclust)
 
 
 
@@ -296,11 +309,10 @@ def clusterStarLight30Test():
     XTrain,YTrain,XTest,YTest=loadStarLightDataSetForClustering(traionSize, testSize+valSize)
     XVal, YVal, XTest, YTest = take2RandDataParts(XTest,YTest,valSize, testSize, seed)
     #print(YVal[1500:1700], np.unique(YVal))
-    distanceAndClusterTests(XTrain,XVal, qParams, distParams, generalClusterParams, pqClusterParams)
+    distanceAndClusterTests(XTrain,XTest, qParams, distParams, generalClusterParams, pqClusterParams)
 
 def clusterStarLight30nokmTest():
-    print('STARLIGHT30')
-    print(50)
+    print('STARLIGHT30NOKMEANS')
     traionSize = 500
     valSize = 2000
     testSize = 5000
@@ -328,7 +340,7 @@ def clusterStarLight30nokmTest():
     XTrain,YTrain,XTest,YTest=loadStarLightDataSetForClustering(traionSize, testSize+valSize)
     XVal, YVal, XTest, YTest = take2RandDataParts(XTest,YTest,valSize, testSize, seed)
     #print(YVal[1500:1700], np.unique(YVal))
-    distanceAndClusterTests(XTrain,XVal, qParams, distParams, generalClusterParams, pqClusterParams)
+    distanceAndClusterTests(XTrain,XTest, qParams, distParams, generalClusterParams, pqClusterParams)
 
 
 def clusterStarLight30NWTest():
@@ -362,11 +374,11 @@ def clusterStarLight30NWTest():
     XTrain,YTrain,XTest,YTest=loadStarLightDataSetForClustering(traionSize, testSize+valSize)
     XVal, YVal, XTest, YTest = take2RandDataParts(XTest,YTest,valSize, testSize, seed)
     #print(YVal[1500:1700], np.unique(YVal))
-    distanceAndClusterTests(XTrain,XVal, qNWParams, distParams, generalClusterParams, pqClusterParams)
+    distanceAndClusterTests(XTrain,XTest, qNWParams, distParams, generalClusterParams, pqClusterParams)
 
 
 def clusterStarLight30AsymTest():
-    print('STARLIGHT30')
+    print('STARLIGHT30ASYMMETRIC')
     print(50)
     traionSize = 500
     valSize = 2000
@@ -387,8 +399,8 @@ def clusterStarLight30AsymTest():
         distanceCalculation=q.DISTANCECALCULATION.ASYMMETRIC,
         computeDistanceCorrection = True,
         quantizationDistParams=quantizationDistParams,
-       # km_init="random",
-        max_iters=2))
+        km_init="random",
+        max_iters=0))
         
     #qParams.append(q.ProductQuantiserParameters(32,2,computeDistanceCorrection=False))
     
@@ -403,7 +415,7 @@ def clusterStarLight30AsymTest():
     XTrain,YTrain,XTest,YTest=loadStarLightDataSetForClustering(traionSize, testSize+valSize)
     XVal, YVal, XTest, YTest = take2RandDataParts(XTest,YTest,valSize, testSize, seed)
     #print(YVal[1500:1700], np.unique(YVal))
-    distanceAndClusterTests(XTrain,XVal, qParams, distParams, generalClusterParams, pqClusterParams)
+    distanceAndClusterTests(XTrain,XTest, qParams, distParams, generalClusterParams, pqClusterParams)
 
 
 
@@ -411,7 +423,6 @@ def clusterStarLight30AsymTest():
 
 def clusterStarLight17Test():
     print('STARLIGHT17')
-    print(50)
     traionSize = 500
     valSize = 2000
     testSize = 5000
@@ -421,7 +432,7 @@ def clusterStarLight17Test():
     nwDistParams={'window': 2, 'psi': 0}
     kmeansWindowSize=2
     #generalClusterParams = {'dists_merger':clustering.singleLinkageUpdater, 'min_clusters':10}
-    generalClusterParams = {'dists_merger':clustering.singleLinkageUpdater, 'min_clusters':10}
+    generalClusterParams = {'dists_merger':clustering.singleLinkageUpdater, 'min_clusters':3}
     pqClusterParams = {'k':199800,'quantizer_usage':clustering.QuantizerUsage.TOP_K_ONLY_AT_INITIALISATION}
     
     print()
@@ -437,11 +448,25 @@ def clusterStarLight17Test():
         
     #qParams.append(q.ProductQuantiserParameters(9,4,computeDistanceCorrection=False))
     
+
   
     XTrain,YTrain,XTest,YTest=loadStarLightDataSetForClustering(traionSize, testSize+valSize)
     XVal, YVal, XTest, YTest = take2RandDataParts(XTest,YTest,valSize, testSize, seed)
     #print(YVal[1500:1700], np.unique(YVal))
-    distanceAndClusterTests(XTrain,XVal, qParams, distParams, generalClusterParams, pqClusterParams)
+    #rclust =  createRealClustering(YVal,3)
+    rclust = None
+    
+    distanceAndClusterTests(XTrain,XTest, qParams, distParams, generalClusterParams, pqClusterParams, groundTruth=rclust)
+
+
+def createRealClustering(YTest, nr_labels=10):
+    cluster_idx = dict()
+    for i in range(1,nr_labels+1):
+        cluster_idx[i]=set()
+
+    for i in range(len(YTest)):
+        cluster_idx[YTest[i]].add(i)
+    return cluster_idx
 
 
 def clusterYogaTest():
@@ -465,13 +490,14 @@ def clusterYogaTest():
         distanceCalculation=q.DISTANCECALCULATION.SYMMETRIC,
         computeDistanceCorrection = False,
         quantizationDistParams=quantizationDistParams,
+        #km_init="random",
         max_iters=2))
         
     
     XTrain,YTrain,XTest,YTest=loadYogaDataSetForClustering(traionSize, testSize+valSize)
     XVal, YVal, XTest, YTest = take2RandDataParts(XTest,YTest,valSize, testSize, seed)
     #print(YVal[1500:1700], np.unique(YVal))
-    distanceAndClusterTests(XTrain,XVal, qParams, distParams, generalClusterParams, pqClusterParams)
+    distanceAndClusterTests(XTrain,XTest, qParams, distParams, generalClusterParams, pqClusterParams)
 
     
 
@@ -482,7 +508,7 @@ def clusterElectricalDevicesTest():
     testSize = 5000
     seed = 0
     distParams={'window': 15, 'psi': 0}
-    quantizationDistParams={'window': 8, 'psi': 0}
+    quantizationDistParams={'window':4, 'psi': 0}
     nwDistParams={'window': 2, 'psi': 0}
     kmeansWindowSize=2
     #generalClusterParams = {'dists_merger':clustering.singleLinkageUpdater, 'min_clusters':10}
@@ -507,8 +533,15 @@ def clusterElectricalDevicesTest():
  
     XTrain,YTrain,XTest,YTest=loadElectricDevicesDataSetForClustering(traionSize, testSize+valSize)
     XVal, YVal, XTest, YTest = take2RandDataParts(XTest,YTest,valSize, testSize, seed)
+    #import matplotlib as pl
+    #pl.pyplot.plot(XVal[3])
+    #pl.pyplot.plot(XVal[4])
+    #pl.pyplot.plot(XVal[5])
+    #pl.pyplot.show()
     #print(YVal[1500:1700], np.unique(YVal))
-    distanceAndClusterTests(XTrain,XVal, qParams, distParams, generalClusterParams, pqClusterParams)
+    rclust =createRealClustering(YVal,7)
+    rclust =None
+    distanceAndClusterTests(XTrain,XTest, qParams, distParams, generalClusterParams, pqClusterParams, groundTruth=rclust)
 
 
 
@@ -525,7 +558,7 @@ def calcTrue(XTest, distParams):
 def calcPred(pq, XTest):
     return pq.constructApproximateDTWDistanceMatrix(XTest)
 
-def distanceAndClusterTests(XTrain,XTest, qParams, distParams, generalClusterParams, pqClusterParams, seed = 0):
+def distanceAndClusterTests(XTrain,XTest, qParams, distParams, generalClusterParams, pqClusterParams, seed = 0, groundTruth = None):
     print(len(XTest))
     print('Training PQ')
     start = time.clock()
@@ -536,7 +569,7 @@ def distanceAndClusterTests(XTrain,XTest, qParams, distParams, generalClusterPar
 
     #distResults = distanceTest(pq,XTest, distParams, seed)
     #print ('distanceTestResults',distResults)
-    clustResults = clusterTest(pq,XTest, distParams, generalClusterParams, pqClusterParams)
+    clustResults = clusterTest(pq,XTest, distParams, generalClusterParams, pqClusterParams, groundTruth= groundTruth)
     #print ('clusterTestResults',clustResults)
 
 
@@ -591,9 +624,10 @@ def distanceTest(pq, XTest, distParams, seed = 0, onlyOneMeasure = True):
     print('exact', {'me':me, 'rmse':rmse, 'spearManCorrelation':spearManCorrelation, 'spearManP':spearManP, 'triangularisationScore':triangularisationScore, 'r':r, 'DTWtime':truetime, 'PQtime':predtime})
 
 
-def clusterTest(pq,XTest, distParams, generalClusterParams, pqClusterParams ):
+def clusterTest(pq,XTest, distParams, generalClusterParams, pqClusterParams, doAll = True, groundTruth=None ):
     #quantizer model
-
+    generalClusterParams['min_clusters']=20
+    n_clust=generalClusterParams['min_clusters']
 
     #normal model
     
@@ -603,15 +637,60 @@ def clusterTest(pq,XTest, distParams, generalClusterParams, pqClusterParams ):
 
 
     
+    if not doAll:
+        print('Exact clustering')
+        start = time.clock()
+        cluster_idxN = modelN.fit(XTest)
+        end = time.clock()
+        dtwTime = end-start
+        print('dtw time', dtwTime)
 
-    print('Exact clustering')
-    start = time.clock()
-    cluster_idxN = modelN.fit(XTest)
-    end = time.clock()
-    dtwTime = end-start
-    print('dtw time', dtwTime)
+    else:
+        generalClusterParams = {'dists_merger':clustering.singleLinkageUpdater, 'min_clusters':n_clust}
+        modelS = clustering.Hierarchical(
+            dtaidistance.dtw.distance_matrix_fast, distParams,
+            **generalClusterParams)
+        print('Exact single')
+        start = time.clock()
+        cluster_idxS = modelS.fit(XTest)
+        end = time.clock()
+        pqTime = end-start
+        print('time',pqTime)
+
+        generalClusterParams = {'dists_merger':clustering.completeLinkageUpdater, 'min_clusters':n_clust}
+        modelC = clustering.Hierarchical(
+            dtaidistance.dtw.distance_matrix_fast, distParams,
+            **generalClusterParams)
+        print('Exact complete')
+        start = time.clock()
+        cluster_idxC = modelC.fit(XTest)
+        end = time.clock()
+        pqTime = end-start
+        print('time',pqTime)
+
+        generalClusterParams = {'dists_merger':None, 'min_clusters':n_clust}
+        modelP = clustering.Hierarchical(
+            dtaidistance.dtw.distance_matrix_fast, distParams,
+            **generalClusterParams)
+        print('Exact prototypes')
+        start = time.clock()
+        cluster_idxP = modelP.fit(XTest)
+        end = time.clock()
+        pqTime = end-start
+        print('time',pqTime)
+        if groundTruth is not None:
+            jaccards, aris = equaliseClusterLabelsAndCalculateScores(groundTruth, cluster_idxS, XTest)
+            print(jaccards, aris)
+            jaccardc, aric = equaliseClusterLabelsAndCalculateScores(groundTruth, cluster_idxC, XTest)
+            print(jaccardc, aric)
+            jaccardp, arip = equaliseClusterLabelsAndCalculateScores(groundTruth, cluster_idxP, XTest)
+            print(jaccardp, arip)
+            return
+
+
+
     #print('Exact clustering done')
-    if False:
+    if not doAll:
         model = clustering.HierarchicalWithQuantizer(
             dtaidistance.dtw.distance_fast, distParams,
             **generalClusterParams,
@@ -624,10 +703,8 @@ def clusterTest(pq,XTest, distParams, generalClusterParams, pqClusterParams ):
         #print('Approximate clustering done')
         pqTime = end-start
 
-        #model2.plot("~/hierarchy.jpg")
-        #model2N.plot("~/hierarchy2.jpg")
-
         jaccard, ari = equaliseClusterLabelsAndCalculateScores(cluster_idxN, cluster_idx, XTest)
+        print(jaccard, ari, dtwTime)
         return {'jaccard':jaccard, 'ari':ari, 'DTWTime': dtwTime, 'PQTime':pqTime}
     else: 
         def performCluster(trueResults, pq,XTest, distParams, generalClusterParams, pqClusterParams):
@@ -641,7 +718,7 @@ def clusterTest(pq,XTest, distParams, generalClusterParams, pqClusterParams ):
             end = time.clock()
             #print('Approximate clustering done')
             pqTime = end-start
-            jaccard, ari = equaliseClusterLabelsAndCalculateScores(cluster_idxN, cluster_idx, XTest)
+            jaccard, ari = equaliseClusterLabelsAndCalculateScores(trueResults, cluster_idx, XTest)
             print( {'jaccard':jaccard, 'ari':ari, 'PQTime':pqTime})
 
             
@@ -651,48 +728,43 @@ def clusterTest(pq,XTest, distParams, generalClusterParams, pqClusterParams ):
         # test 0, 2, 5, 10, 25 %precalcs
         testkperc = [2,5,10,25]
         # test 5, 10, 25 %calcsper merge
-        testkpermerge = [0.5, 2.0, 5.0, 10.0]
-        testperc = [2,5,10,25]
-        n_clust = generalClusterParams['min_clusters']=10
+        testkpermerge = [0.5, 2.0, 5.0, 10.0, 20.0]
+        testperc = [2,5,10,25,50]
+        print(calcs, tot)
+        n_clust = generalClusterParams['min_clusters']
         clusterTypes = [None, clustering.singleLinkageUpdater, clustering.completeLinkageUpdater]
 
         print ('approx', 'single')
         generalClusterParams = {'dists_merger':clustering.singleLinkageUpdater, 'min_clusters':n_clust}
         pqClusterParams = {'k':199800,'quantizer_usage':clustering.QuantizerUsage.ONLY_APPROXIMATES}
-        performCluster(cluster_idxN, pq,XTest, distParams, generalClusterParams, pqClusterParams )
+        performCluster(cluster_idxS, pq,XTest, distParams, generalClusterParams, pqClusterParams )
         for k in testperc:
             print ('percent',k, 'single',k)
             pqClusterParams = {'k':int(k*calcs/100),'quantizer_usage':clustering.QuantizerUsage.TOP_K_ONLY_AT_INITIALISATION}
-            performCluster(cluster_idxN, pq,XTest, distParams, generalClusterParams, pqClusterParams )
+            performCluster(cluster_idxS, pq,XTest, distParams, generalClusterParams, pqClusterParams )
         print ('approx', 'complete')
         generalClusterParams = {'dists_merger':clustering.completeLinkageUpdater, 'min_clusters':n_clust}
         pqClusterParams = {'k':199800,'quantizer_usage':clustering.QuantizerUsage.ONLY_APPROXIMATES}
-        performCluster(cluster_idxN, pq,XTest, distParams, generalClusterParams, pqClusterParams )
+        performCluster(cluster_idxC, pq,XTest, distParams, generalClusterParams, pqClusterParams )
         for k in testperc:
             print ('percent',k, 'complete',k)
             pqClusterParams = {'k':int(k*calcs/100.0),'quantizer_usage':clustering.QuantizerUsage.TOP_K_ONLY_AT_INITIALISATION}
-            performCluster(cluster_idxN, pq,XTest, distParams, generalClusterParams, pqClusterParams )
+            performCluster(cluster_idxC, pq,XTest, distParams, generalClusterParams, pqClusterParams )
         print ('approx', 'proto')
         generalClusterParams = {'dists_merger':None, 'min_clusters':n_clust}
         pqClusterParams = {'k':199800,'quantizer_usage':clustering.QuantizerUsage.ONLY_APPROXIMATES}
-        performCluster(cluster_idxN, pq,XTest, distParams, generalClusterParams, pqClusterParams )
+        performCluster(cluster_idxP, pq,XTest, distParams, generalClusterParams, pqClusterParams )
         for k in testperc:
             print ('percent',k, 'proto',k)
             pqClusterParams = {'k':int(k*calcs/100.0),'quantizer_usage':clustering.QuantizerUsage.TOP_K_ONLY_AT_INITIALISATION}
-            performCluster(cluster_idxN, pq,XTest, distParams, generalClusterParams, pqClusterParams )
-        for k in testperc:
+            performCluster(cluster_idxP, pq,XTest, distParams, generalClusterParams, pqClusterParams )
+        for k in testkpermerge:
             print ('partEachMerge',k, 'proto',k)
             pqClusterParams = {'k':int(k*tot/100),'quantizer_usage':clustering.QuantizerUsage.TOP_K}
-            performCluster(cluster_idxN, pq,XTest, distParams, generalClusterParams, pqClusterParams )
+            performCluster(cluster_idxP, pq,XTest, distParams, generalClusterParams, pqClusterParams )
 
 
-        print ('approx', 'complete')
-        generalClusterParams = {'dists_merger':clustering.completeLinkageUpdater, 'min_clusters':n_clust}
-        performCluster(cluster_idxN, pq,XTest, distParams, generalClusterParams, pqClusterParams )
-        print ('approx', 'proto')
-        generalClusterParams = {'dists_merger':None, 'min_clusters':n_clust}
-        performCluster(cluster_idxN, pq,XTest, distParams, generalClusterParams, pqClusterParams )
-        
+         
 
 
 def take2RandDataParts(series, seriesY, len1, len2, seed = 0 ):
@@ -737,12 +809,12 @@ foo()
 
 #keoghTest()
 clusterECG5000Test()
-#clusterYogaTest()
-#clusterElectricalDevicesTest()
-#clusterStarLight30Test()
-#clusterStarLight30nokmTest()
-#clusterStarLight30AsymTest()
+clusterYogaTest()
+clusterElectricalDevicesTest()
+clusterStarLight30Test()
+clusterStarLight30nokmTest()
+clusterStarLight30AsymTest()
 #clusterStarLight30NWTest()
-#clusterStarLight17Test()
+clusterStarLight17Test()
 
 

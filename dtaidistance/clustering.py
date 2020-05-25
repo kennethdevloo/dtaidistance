@@ -29,7 +29,7 @@ except ImportError:
 
 logger = logging.getLogger("be.kuleuven.dtai.distance")
 
-
+              
 def singleLinkageUpdater(dists, i1, i2):
     
     for r in range(i2):
@@ -153,19 +153,19 @@ class HierarchicalWithQuantizer:
             print('No clusterig will be done. No PQ trained yet.')
             return None
 
-        print('Calculate PQ distance matrix.')
+        #print('Calculate PQ distance matrix.')
 
         cluster_idx = dict()
         dists = self.quantizer.constructApproximateDTWDistanceMatrix(series)
         realVal = np.zeros((dists.shape[0], dists.shape[1]), dtype=np.uint8)
-        print('finished distance approximation')
+        #print('finished distance approximation')
        # print (dists)
 
         if self.quantizer_usage is QuantizerUsage.ONLY_APPROXIMATES:
             min_value = np.min(dists)
             min_idxs = np.argwhere(dists == min_value)
         elif self.quantizer_usage is QuantizerUsage.TOP_K or self.quantizer_usage is QuantizerUsage.TOP_K_ONLY_AT_INITIALISATION:
-            idxs = np.argpartition(dists, self.k, axis = None)[0:self.k]
+            idxs = np.argpartition(dists, self.k, axis = None,)[0:self.k]
             min_idxs = np.zeros((self.k, 2), np.int)
             min_dists = np.zeros((self.k), np.float32)
 
@@ -173,17 +173,11 @@ class HierarchicalWithQuantizer:
                 min_idxs[i,0] = int(idxs[i]/dists.shape[1])
                 min_idxs[i,1] = int(idxs[i]%dists.shape[1])
                 if not (dists[min_idxs[i,0], min_idxs[i,1]] == np.inf):
-#                    print(series[min_idxs[i,0], :],series[min_idxs[i,1], :])
-                    if realVal[min_idxs[i,0], min_idxs[i,1]] == 0:
-                        dists[min_idxs[i,0], min_idxs[i,1]] = self.dists_fun(series[min_idxs[i,0], :],series[min_idxs[i,1], :],**self.dists_options)
-                        realVal[min_idxs[i,0], min_idxs[i,1]]=1
+                    dists[min_idxs[i,0], min_idxs[i,1]] = self.dists_fun(series[min_idxs[i,0], :],series[min_idxs[i,1], :],**self.dists_options)
+                    realVal[min_idxs[i,0], min_idxs[i,1]]=1
                     min_dists[i] = dists[min_idxs[i,0], min_idxs[i,1]]
-                else:
-                    min_dists[i] = np.inf
-            min_value = np.min(min_dists)
-            min_minidxs =  np.argwhere(min_dists == min_value)
-            min_idxs = min_idxs[min_minidxs, :]
-            min_idxs = min_idxs[0,:] 
+            min_value = np.min(dists)
+            min_idxs = np.argwhere(dists == min_value)
             #print(min_idxs, min_value,min_minidxs, min_dists)  
 
         if self.order_hook:
@@ -307,6 +301,7 @@ class Hierarchical:
         self.order_hook = order_hook
         self.show_progress = show_progress
         self.dists_merger = dists_merger
+        
 
 
     def fit(self, series):
@@ -733,7 +728,7 @@ class LinkageTree(BaseTree):
             dists_cond[idx:idx + len(series) - r - 1] = dists[r, r + 1:]
             idx += len(series) - r - 1
 
-        self.linkage = linkage(dists_cond, method=self.method, metric='euclidean')
+        self.linkage = linkage(dists_cond, method=self.method, metric='euclidean',)
 
     def _size_cond(self, size):
         n = int(size)
