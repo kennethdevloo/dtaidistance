@@ -1,3 +1,18 @@
+'''
+Test code for procuct quanbtization
+Author: Kenneth Devloo
+
+
+This code
+: Loads test cases
+- Calls the product quantizer in DTAIDistance fork (user: kennethdevloo)
+- Compares Distance matrix by quantizer with that from exact DTW 
+- Compares clustering results with PQ distances with the clustering results with actual DTW
+    - Comparison is done by assigning fictional labels
+
+The datasets in the tetss originate from timeseriesclassification.com
+'''
+
 from sklearn.metrics.cluster import adjusted_rand_score
 from sklearn.cluster import KMeans
 from sklearn import preprocessing
@@ -23,7 +38,9 @@ def _size_cond(size):
     n = int(size)
     return int((n * (n - 1)) / 2)
 
-
+'''
+Similar to clustering.py in DTAIDistance, turn a 2D distance matrix into a compact 1D array
+'''
 def condenseDists(dists):
     dists_cond = np.zeros(_size_cond(dists.shape[0]))
     idx = 0
@@ -31,10 +48,11 @@ def condenseDists(dists):
         dists_cond[idx:idx + dists.shape[0] - r - 1] = dists[r, r + 1:]
         idx += dists.shape[0] - r - 1
     return dists_cond
-
-
+'''
+Each sample has its mean subtracted and is divided by its standard deviation.
+Should already be done by default with datasets of timeseriesclassification.com
+'''
 def zNormalize(X):
-    # return X
     return (X-np.mean(X, axis=1, keepdims=True)/np.std(X, axis=1, keepdims=True))
 
 
@@ -98,7 +116,7 @@ def loadStarLightDataSetForClustering(traionSize, testSize):
     return loadDataSet('StarLightCurves_TRAIN.txt', 'StarLightCurves_TEST.txt', traionSize, testSize)
 
 
-# based on https://thispointer.com/python-how-to-find-keys-by-value-in-dictionary/
+# dict handling is based on https://thispointer.com/python-how-to-find-keys-by-value-in-dictionary/
 def getKeys(dictOfElements):
     listOfItems = dictOfElements.items()
     keys = list()
@@ -121,13 +139,13 @@ def getKeyByValue(dictOfElements, valueToFind):
         if valueToFind in item[1]:
             return item[0]
 
-
+#standard Jaccards index formula, s1 and s2 are arrays of indices
 def jaccard_similarity(s1, s2):
     intersectionL = len(s1.intersection(s2))
     unionL = len(s1) + len(s2) - intersectionL
     return float(intersectionL) / unionL
 
-
+#All labels names in one 1D array
 def convertToLabelArray(idx, len):
     ret = np.zeros((len), np.int32)
     items = idx.items()
@@ -138,7 +156,7 @@ def convertToLabelArray(idx, len):
                 break
     return ret
 
-
+#Extra test for triangle inequality, eventually not used in the tehsis
 def triangularTest(dists, attempts):
     if dists.shape[0] < 3:
         return 1
@@ -159,7 +177,16 @@ def triangularTest(dists, attempts):
     ratio = float(right)/attempts
     return ratio
 
-
+'''
+Comparison between distance matrices
+Input: 2 distance matrices, series length, amount of tetss to triangle inequality
+- Create condensed versions
+- Calculate mean error
+- Calcilate rmse error
+- Calculate SPearman correlation coefficient + p-value 
+- Calculate how well triangle inequality is held
+- Calculate relative difference in percentage between two matrices
+'''
 def scoreDistanceMatrices(truth, pred, nb_series, triangleTries=10000):
     conDistTruth = condenseDists(truth)
     #print(pred[0:6, 0:6])
@@ -194,7 +221,13 @@ def scoreDistanceMatrices(truth, pred, nb_series, triangleTries=10000):
 
 # idx1 is th reference truth
 
-
+'''
+Compare 2 clusterings:
+Clusterings idx1 and idx2 are given as dioctionaries like the output in dtaidistance
+Changes labels in idx2 to make teh clusterings as 'equal' as possible withput changing the actual clusters
+- returns accumulated Jaccard
+- return adjusted rand index
+'''
 def equaliseClusterLabelsAndCalculateScores(idx1, idx2, X=None):
     jaccard = 0
     ari = 0
@@ -253,6 +286,7 @@ def printClusters(idx):
     listOfItems = idx.items()
     for item in listOfItems:
         print(item)
+
 
 
 def clusterECG5000Test():
@@ -504,22 +538,29 @@ def createRealClustering(YTest, nr_labels=10):
     return cluster_idx
 
 
+
+'''
+Test case for Yoga dataset
+Other datasets are tested in the same way
+'''
 def clusterYogaTest():
     print('YOGA')
+    #subset sizes
     traionSize = 300
     valSize = 1000
     testSize = 2000
     seed = 0
+    #parameters for distance, clustering, see code on those subjects for meaning
     distParams = {'window': 3, 'psi': 0}
     quantizationDistParams = {'window': 2, 'psi': 0}
     kmeansWindowSize = 2
     #generalClusterParams = {'dists_merger':clustering.singleLinkageUpdater, 'min_clusters':10}
     generalClusterParams = {
-        'dists_merger': clustering.singleLinkageUpdater, 'min_clusters': 2}
+        'dists_merger': clustering.singleLinkageUpdater, 'min_clusters': 20}
     pqClusterParams = {
         'k': 199800, 'quantizer_usage': clustering.QuantizerUsage.TOP_K_ONLY_AT_INITIALISATION}
 
-    quantizationDistParams = {'window': 2, 'psi': 0}
+    #One layer of parameters, no recursion, see quantizer_c in dtaidistanmce fork for their meaning
     qParams = []
     qParams.append(q.ProductQuantiserParameters(107, 100, distParams=distParams,
                                                 subsetType=q.SubsetSelectionType.NO_OVERLAP,
@@ -530,11 +571,13 @@ def clusterYogaTest():
                                                 # km_init="random",
                                                 max_iters=2))
 
+    #dataset load
     XTrain, YTrain, XTest, YTest = loadYogaDataSetForClustering(
         traionSize, testSize+valSize)
+    #dataset split
     XVal, YVal, XTest, YTest = take2RandDataParts(
         XTest, YTest, valSize, testSize, seed)
-    #print(YVal[1500:1700], np.unique(YVal))
+    #Execute distance and clustering
     distanceAndClusterTests(XTrain, XTest, qParams,
                             distParams, generalClusterParams, pqClusterParams)
 
@@ -615,6 +658,12 @@ def distanceAndClusterTests(XTrain, XTest, qParams, distParams, generalClusterPa
     print('clusterTestResults', clustResults)
 
 
+'''
+Calculate exact dtw distances + estimations with distance params
+pq is the trained product quantizer
+XTest is teh dataset to calcuklate teh distance matrices from
+onlyOneMeasure  is True for normal test, if this is false, try other estimation methods (eg asymmetric)
+'''
 def distanceTest(pq, XTest, distParams, seed=0, onlyOneMeasure=True):
 
     print('regular')
@@ -638,6 +687,9 @@ def distanceTest(pq, XTest, distParams, seed=0, onlyOneMeasure=True):
     if onlyOneMeasure:
         print('end distance test')
         return {'me': me, 'rmse': rmse, 'spearManCorrelation': spearManCorrelation, 'spearManP': spearManP, 'triangularisationScore': triangularisationScore, 'r': r, 'DTWtime': truetime, 'PQtime': predtime}
+    
+    
+    #assuming we started with keogh correction, switch correction styles to test estimation quality
 
     print('keogh', {'me': me, 'rmse': rmse, 'spearManCorrelation': spearManCorrelation, 'spearManP': spearManP,
                     'triangularisationScore': triangularisationScore, 'r': r, 'DTWtime': truetime, 'PQtime': predtime})
@@ -673,9 +725,19 @@ def distanceTest(pq, XTest, distParams, seed=0, onlyOneMeasure=True):
                     'triangularisationScore': triangularisationScore, 'r': r, 'DTWtime': truetime, 'PQtime': predtime})
 
 
+
+'''
+Clustering test
+pq is a trained productr quantizer
+distParams are the dtaidistance dtw parameters
+generalClusterParams are the dtaidistance clustering parameters
+pqClusterParams clustering paarmeters specific to clustering with estimates
+doAll expand tetss to try prototype, single and complete linkage
+groundTruth Switch to comparing dtw results to a ground truth 1D array of labels
+returns jaccard, ari
+'''
 def clusterTest(pq, XTest, distParams, generalClusterParams, pqClusterParams, doAll=False, groundTruth=None):
-    # quantizer model
-    generalClusterParams['min_clusters'] = 20
+    
     n_clust = generalClusterParams['min_clusters']
 
     # normal model
@@ -783,7 +845,7 @@ def clusterTest(pq, XTest, distParams, generalClusterParams, pqClusterParams, do
         clusterTypes = [None, clustering.singleLinkageUpdater,
                         clustering.completeLinkageUpdater]
 
-        '''print ('approx', 'single')
+        print ('approx', 'single')
         generalClusterParams = {'dists_merger':clustering.singleLinkageUpdater, 'min_clusters':n_clust}
         pqClusterParams = {'k':199800,'quantizer_usage':clustering.QuantizerUsage.ONLY_APPROXIMATES}
         performCluster(cluster_idxS, pq,XTest, distParams, generalClusterParams, pqClusterParams )
@@ -791,7 +853,7 @@ def clusterTest(pq, XTest, distParams, generalClusterParams, pqClusterParams, do
             print ('percent',k, 'single',k)
             pqClusterParams = {'k':int(k*calcs/100),'quantizer_usage':clustering.QuantizerUsage.TOP_K_ONLY_AT_INITIALISATION}
             performCluster(cluster_idxS, pq,XTest, distParams, generalClusterParams, pqClusterParams )
-        '''
+        
         print('approx', 'complete')
         generalClusterParams = {
             'dists_merger': clustering.completeLinkageUpdater, 'min_clusters': n_clust}
@@ -848,7 +910,7 @@ def clusterTest(pq, XTest, distParams, generalClusterParams, pqClusterParams, do
                 performCluster(cluster_idxP, pq, XTest, distParams,
                                generalClusterParams, pqClusterParams)
 
-
+#split data + labels in length len1 and len2
 def take2RandDataParts(series, seriesY, len1, len2, seed=0):
     nb_series = len1+len2
     random.seed(seed)
@@ -858,7 +920,7 @@ def take2RandDataParts(series, seriesY, len1, len2, seed=0):
     testData = indiceList[len1:len2+len1]
     return series[samples], seriesY[samples], series[testData], seriesY[testData]
 
-
+#split data according to a ratio
 def splitData(series, seriesY, ratio, seed=0):
     nb_series = len(series)
     random.seed(seed)
@@ -871,34 +933,10 @@ def splitData(series, seriesY, ratio, seed=0):
     return series[samples], seriesY[samples], series[testData], seriesY[testData]
 
 
-def keoghTest():
-    from dtaidistance import dtw
-    X = np.array([[1, 5, 6, 1, 1], [1, 2, 7, 2, 1], [
-                 25, 22, 15, 41, 21]], dtype=np.double)
-    X2 = np.array([[1, 5, 6, 1, 1], [25, 2, 15, 41, 21], [
-                  25, 22, 15, 41, 21], [1, 2, 7, 2, 1]], dtype=np.double)
 
-    print(X)
-    L, U = dtw.lb_keogh_enveloppes_fast(X2, 2)
-    Y = dtw.nearest_neighbour_lb_keogh_fast(
-        X, X2, L, U, distParams={'window': 2, 'psi': 0})
-    print(Y)
-
-
-truth = None
-
-
-def foo():
-    if truth is None:
-        print('ok')
-
-
-foo()
-
-
-keoghTest()
+#Documented test case: Yoga
 # clusterECG5000Test()
-# clusterYogaTest()
+clusterYogaTest()
 #clusterElectricalDevicesTest()
 # clusterStarLight30Test()
 # clusterStarLight30nokmTest()
@@ -906,7 +944,7 @@ keoghTest()
 # clusterStarLight30NWTest()
 # clusterStarLight17Test()
 
-
+'''
 def saveDataSetSamples():
     import matplotlib.pyplot as plt
     XT, YT, _, _ = loadElectricDevicesDataSetForClustering(10, 10)
@@ -942,4 +980,5 @@ def saveDataSetSamples():
     plt.clf()
 
 
-# saveDataSetSamples()
+saveDataSetSamples()
+'''

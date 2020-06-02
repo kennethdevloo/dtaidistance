@@ -14,26 +14,53 @@ from tslearn.utils import to_time_series_dataset
 
 
 
-
+'''
+Sampling method choice, with or without overlap[]
+'''
 cpdef enum SubsetSelectionType:
     NO_OVERLAP = 1
     DOUBLE_OVERLAP=2
 
+'''
+Calculation method. Mostly about correction with equal codes
+NW wiull always calculate symmetric
+'''
 cpdef enum DISTANCECALCULATION:
     SYMMETRIC=0  #DEFAULT CASE. ONLY USE PRECOMPUTED DISTANCES
-    ASYMMETRIC=1 #Only supported for PQDICT
-    #IN ASYM CASE: Create INV INDEX ->
-    EXACT_WHEM_0DIST=2 #ALTERNATIVE TO RECURSION  
+    ASYMMETRIC=1 
+    EXACT_WHEM_0DIST=2
     ASYMMETRIC_KEOGH_WHEM_0DIST=3 
     RECURSION=4
 
+'''
+PQDICT is the sped up part
+PQNeedlemanWunsch matches codes by NW algp
+VQNeedlemanWunsch same as PQNeedlemanWunsch. but allow alld icts at all positions
+
+'''
 cpdef enum QuantizerType:
     PQDICT=0 
     PQNeedlemanWunsch=1
     VQNeedlemanWunsch=2 
 
 
+'''
+All parameters for the productr quantizer
 
+distParams: dtaidistance dtw parameters (precalulation params)
+quantizationDistParams: dtaidistance parameters to qencode data 
+withIndex: Index training data or not 
+quantizerType: QuantizerType enum
+nwDistParams = dtaidistance dynamic programming parameters for NW algo
+subsetType: SubsetSelectionTypeenum
+barycenterMaxIter: kmeans param, iterations to calculate mean
+max_iters: k-means iterations
+kmeansWindowSize: window size for k-means, 0 means default is used (2 in tslearn)
+useLbKeoghToFit: Use fast NN with lower bound for encoding
+computeDistanceCorrection: Correct over/underestimate or not
+distanceCalculation: DISTANCECALCULATION enum
+km_init: initialization method for k-means dict traiing
+'''
 class ProductQuantiserParameters():
     def __init__(self, subsetSize = 35, dictionarySize = 30, 
     distParams={'window':5, 'psi':0},quantizationDistParams={'window':5, 'psi':0},  
@@ -62,7 +89,13 @@ class ProductQuantiserParameters():
         self.nwDistParams=nwDistParams
         self.distanceCalculation = distanceCalculation
 
-#@cython.auto_pickle(True) 
+'''
+Dictionary belonging to a quantizer
+k-means is done for every dict
+Estimation for subset distances can be done here in case of recursion
+Encoding is done here too, based on keogh are actual distances
+In case of recursion, this will also hold a lost of quantizers, one for each code
+'''''
 cdef class PQDictionary():
     cdef public bint recursiveLayer
     cdef int depth
@@ -262,7 +295,12 @@ cdef class PQDictionary():
         self.params.distanceCalculation=dc
 
 
-
+'''
+Product quantizer
+Contains list of dictionaries
+Calculates distance matrix
+Invokes correct calulcation method (asym, sym, keogh, partial exact etc) 
+'''=
 cdef class ProductQuantizer():
     cdef int nrDictionaries
     cdef int subsetSize
@@ -539,18 +577,24 @@ cdef class ProductQuantizer():
             dic.switchDistanceCalculation(dc)
 
 
+
+'''
+Wrapper around C-class above for product quantization 
+'''
 class PyProductQuantizer():
+    '''
+    Initialization and traioning of product quantizer.
+    data is the training data
+    pqParams: is a ProductQuantiserParameters class, documented above
+    nor return
+    '''
     def __init__(self, data=None, pqParams=None):
         if pqParams is None:
             print('no params, load from file?')
         self.pq = ProductQuantizer(data, pqParams)
 
-    def loadFromFile(self, fileName):
-        pickle_in = open(fileName,"rb")
-        self.pq = pickle.load(pickle_in)
-
     
-    '''redo hyp[erpparams, invoke reprecalculation with ther distance aparams, no recaulculation of codebooks!
+    '''redo hyperpparams, invoke reprecalculation with ther distance aparams, no recaulculation of codebooks!
         This functionality is there for quick testing purposes and is more a hack than a real functionality.
         use case examples:
             Change the handling of 0distance
@@ -563,11 +607,17 @@ class PyProductQuantizer():
     def resetParamsAndPrecalculate(self, pqParams):
         self.pq.resetParamsAndPrecalculate(pqParams)
 
+    '''
+    Switch claculation metric 
+    dc is DISTANCECALCUYLATION
+    '''
     def switchDistanceCalculation(self, dc):
         self.pq.switchDistanceCalculation(dc)
 
 
-
+    '''
+    Construction of 2D distance matrix with 2D data array of 1D samples
+    '''
     def constructApproximateDTWDistanceMatrix(self, data):
         v=self.pq.constructApproximateDTWDistanceMatrix(data)
        # print(v[1:6,1:6])
