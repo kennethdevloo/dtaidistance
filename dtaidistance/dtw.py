@@ -56,6 +56,12 @@ def lb_keogh_enveloppes(data, window=None, use_c=False):
   
     Returns: 2D arrays L and U of lower and upper enveloppes in same order of data
     """
+
+    if use_c:
+        if dtw_c is None:
+            logger.warning("C-library not available, using the Python version")
+            use_c = False
+
     L = np.zeros(data.shape, dtype=DTYPE)
     U = np.zeros(data.shape, dtype=DTYPE)
 
@@ -103,6 +109,11 @@ def nearest_neighbour_lb_keogh(data, target, L, U, distParams={}, use_c=False, u
 
     Returns: 1D array of nearest neighbours indices from the enveloppes
     """
+    if use_c:
+        if dtw_c is None:
+            logger.warning("C-library not available, using the Python version")
+            use_c = False
+
     lb = lb_keogh_distance(data, L, U, use_c, use_parallel)
     best_fits = np.zeros((data.shape[0],), dtype=np.int)
 
@@ -166,7 +177,6 @@ def k_nearest_neighbour_lb_keogh(data, k, target, L=None, U=None, distParams={},
 
 
 
-'''Equal distance required here'''
 
 
 def lb_keogh_distance_fast(data, L, U):
@@ -193,8 +203,12 @@ def lb_keogh_distance(data, L, U, use_c=False, use_parallel=False):
     TODO: Support for different lengths of data
     Returns: 2D array of lower bounds, shaped #samples x #enveloppes
     """
+    if use_c:
+        if dtw_c is None:
+            logger.warning("C-library not available, using the Python version")
+            use_c = False
     assert(L.shape == U.shape)
-    assert(data.shape[1] == L.shape[1])
+    assert(data.shape[1] == L.shape[1])  #change in TODO for supporting keogh on different lengths
 
     lb = np.zeros((data.shape[0], L.shape[0]), dtype=DTYPE)
 
