@@ -38,7 +38,11 @@ class Needleman_wunsch_default():
             d = 1  # mismatch
         return d, d_indel
 
-
+'''
+This idea was not worked out in detail in this trhesis and therefore, it is not really a sparse matrix.
+However, calculations are done in a cached way: Only calculate distances that are actually needed.
+This class can be used as a substitution matrix for NWeedleman-Wunsch
+'''
 class SparseSubstitutionMatrix():
     def __init__(self, data, distParams={}):
         # note that in PQ case, the data consists off all the centres

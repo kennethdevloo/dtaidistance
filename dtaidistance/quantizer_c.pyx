@@ -300,7 +300,7 @@ Product quantizer
 Contains list of dictionaries
 Calculates distance matrix
 Invokes correct calulcation method (asym, sym, keogh, partial exact etc) 
-'''=
+'''
 cdef class ProductQuantizer():
     cdef int nrDictionaries
     cdef int subsetSize
