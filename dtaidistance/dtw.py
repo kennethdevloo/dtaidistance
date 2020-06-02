@@ -34,11 +34,28 @@ except ImportError:
 DTYPE = np.double
 
 
-def lb_keogh_enveloppes_fast(data, window=None ):
+def lb_keogh_enveloppes_fast(data, window=None):
+    """
+    lb_keogh enveloppe calculation
+
+    Calculates enveloppes arround 2D array of 1D data
+    See lb_keogh_enveloppes 
+    """
     return lb_keogh_enveloppes(data, window, True)
 
 
-def lb_keogh_enveloppes(data, window=None , use_c = False):
+def lb_keogh_enveloppes(data, window=None, use_c=False):
+    """
+    lb_keogh enveloppe calculation
+
+    Calculates enveloppes arround 2D array of 1D data
+
+    :param data: 2D Array of 1D time series
+    :param window: Window size of the enveloppes
+    :param use_c: Use fast pure c compiled functions
+  
+    Returns: 2D arrays L and U of lower and upper enveloppes in same order of data
+    """
     L = np.zeros(data.shape, dtype=DTYPE)
     U = np.zeros(data.shape, dtype=DTYPE)
 
@@ -46,92 +63,140 @@ def lb_keogh_enveloppes(data, window=None , use_c = False):
         window = data.shape[1]
 
     if use_c:
-       dtw_c.lb_keogh_enveloppes(data, window, L, U) 
+        dtw_c.lb_keogh_enveloppes(data, window, L, U)
     else:
         for i in range(data.shape[1]):
             imin = max(0, i - window)
-            imax = min(data.shape[1],i + window)
+            imax = min(data.shape[1], i + window)
             for d in range(data.shape[0]):
-                U[d,i] = np.max(data[d,imin:imax])
-                L[d,i] = np.min(data[d,imin:imax])
-        
-    return L,U
+                U[d, i] = np.max(data[d, imin:imax])
+                L[d, i] = np.min(data[d, imin:imax])
+
+    return L, U
+
 
 '''Getr nearest neighbour, sped up lb_keogh implementation'''
-def nearest_neighbour_lb_keogh_fast(data,target, L=None, U=None , distParams={}, lb = None):
-    return nearest_neighbour_lb_keogh(data, target, L, U, distParams, lb, True, True)
 
-def nearest_neighbour_lb_keogh(data, target, L=None, U=None, distParams={}, lb = None, use_c = False, use_parallel= False):
-    #adapt if L is None or U is None:
 
-    if lb is None:
-        lb = lb_keogh_distance(data, L, U, use_c, use_parallel)
-    best_fits = np.zeros((data.shape[0],), dtype=np.int )
+def nearest_neighbour_lb_keogh_fast(data, target, L, U, distParams={}):
+    """
+    lb_keogh nearest neighbour_fast (1NN)
+
+    See nearest_neighbour_lb_keogh
+
+    """
+    return nearest_neighbour_lb_keogh(data, target, L, U, distParams, True, True)
+
+
+def nearest_neighbour_lb_keogh(data, target, L, U, distParams={}, use_c=False, use_parallel=False):
+    """
+    lb_keogh nearest neighbour (1NN)
+
+    Return 1NN result,s ped up by early stopping and lower bound
+
+    :param data: 2D Array of 1D time series
+    :param L: Lower enveloppe part, calculated by lb_keogh_enveloppes
+    :param U: Upper enveloppe part, calculated by lb_keogh_enveloppes
+    :param distParams: Distance function paraneters. For correctness, 'window' should match the enveloppe window
+    :param use_c: Use fast pure c compiled functions
+    :param use_parallel: Use fast parallel version (only in C version)
+
+    Returns: 1D array of nearest neighbours indices from the enveloppes
+    """
+    lb = lb_keogh_distance(data, L, U, use_c, use_parallel)
+    best_fits = np.zeros((data.shape[0],), dtype=np.int)
 
     if use_c:
-        dtw_c.nearest_neighbour_lb_keogh(data, target, distParams, use_parallel, best_fits, lb)
+        dtw_c.nearest_neighbour_lb_keogh(
+            data, target, distParams, use_parallel, best_fits, lb)
     else:
         for d in range(data.shape[0]):
             best_score_so_far = np.inf
             for t in range(target.shape[0]):
                 if best_score_so_far > lb[d, t]:
-                    score = distance(data[d,:], target[t, :],**distParams, max_dist=best_score_so_far)
+                    score = distance(
+                        data[d, :], target[t, :], **distParams, max_dist=best_score_so_far)
                     if score < best_score_so_far:
                         best_score_so_far = score
-                        best_fits[d]=t
-    
+                        best_fits[d] = t
+
     return best_fits
 
-    '''Getr nearest neighbour, sped up lb_keogh implementation'''
-def k_nearest_neighbour_lb_keogh_fast(data, k, target, L=None, U=None, distParams={}, lb = None):
+    '''Get nearest neighbour, sped up lb_keogh implementation'''
+
+
+def k_nearest_neighbour_lb_keogh_fast(data, k, target, L=None, U=None, distParams={}, lb=None):
     return k_nearest_neighbour_lb_keogh(data, k, L, U, target, distParams, lb, True, True)
 
-def k_nearest_neighbour_lb_keogh(data, k, target, L=None, U=None, distParams={}, lb = None, use_c = False, use_parallel= False):
-    assert(k>0)
+
+def k_nearest_neighbour_lb_keogh(data, k, target, L=None, U=None, distParams={}, lb=None, use_c=False, use_parallel=False):
+    assert(k > 0)
 
     if lb is None:
         lb = lb_keogh_distance(data, L, U, use_c, use_parallel)
-    best_fits = np.zeros((data.shape[0],k), dtype=np.int )
-    best_dists = np.zeros((data.shape[0],k), dtype=np.double )
+    best_fits = np.zeros((data.shape[0], k), dtype=np.int)
+    best_dists = np.zeros((data.shape[0], k), dtype=np.double)
 
     if use_c:
-        dtw_c.k_nearest_neighbour_lb_keogh(data, target, k, distParams, use_parallel, best_fits, best_dists, lb)
+        dtw_c.k_nearest_neighbour_lb_keogh(
+            data, target, k, distParams, use_parallel, best_fits, best_dists, lb)
     else:
-        best_dists_so_far = np.zeros((k,1), dtype=np.double)
-        best_fits_so_far = np.zeros((k,1), dtype=np.int)
+        best_dists_so_far = np.zeros((k, 1), dtype=np.double)
+        best_fits_so_far = np.zeros((k, 1), dtype=np.int)
         for d in range(data.shape[0]):
-            best_dists_so_far[:]=np.inf
-            best_fits_so_far[:]=0
+            best_dists_so_far[:] = np.inf
+            best_fits_so_far[:] = 0
             kth_best_dist_so_far = np.inf
-            current_highest_fit_index = 0 
+            current_highest_fit_index = 0
             for t in range(target.shape[0]):
                 if kth_best_dist_so_far > lb[d, t]:
-                    score = distance(data[d,:], target[t, :],**distParams, max_dist=kth_best_dist_so_far)
+                    score = distance(
+                        data[d, :], target[t, :], **distParams, max_dist=kth_best_dist_so_far)
                     if score < kth_best_dist_so_far:
                         best_dists_so_far[current_highest_fit_index] = score
-                        best_fits_so_far[current_highest_fit_index]=t
-                        current_highest_fit_index = np.argmax(best_dists_so_far)
-                        kth_best_dist_so_far=best_dists_so_far[current_highest_fit_index]
+                        best_fits_so_far[current_highest_fit_index] = t
+                        current_highest_fit_index = np.argmax(
+                            best_dists_so_far)
+                        kth_best_dist_so_far = best_dists_so_far[current_highest_fit_index]
 
-            best_fits[d]=best_fits_so_far
-            best_dists[d]=best_dists_so_far
-    
+            best_fits[d] = best_fits_so_far
+            best_dists[d] = best_dists_so_far
+
     return best_fits, best_scores
-        
-
 
 
 
 '''Equal distance required here'''
+
+
 def lb_keogh_distance_fast(data, L, U):
-    return lb_keogh_distance(data, L, U , True, True)
+    """
+    lb_keogh
+
+    See lb_keogh_distance_fast
+    """
+    return lb_keogh_distance(data, L, U, True, True)
 
 
-def lb_keogh_distance(data, L, U, use_c = False, use_parallel = False):
+def lb_keogh_distance(data, L, U, use_c=False, use_parallel=False):
+    """
+    lb_keogh
+
+    Lower bound calculated on a 2D array of time series.
+
+    :param data: 2D Array of 1D time series
+    :param L: Lower enveloppe part, calculated by lb_keogh_enveloppes
+    :param U: Upper enveloppe part, calculated by lb_keogh_enveloppes
+    :param use_c: Use fast pure c compiled functions
+    :param use_parallel: Use fast parallel version (only in C version)
+
+    TODO: Support for different lengths of data
+    Returns: 2D array of lower bounds, shaped #samples x #enveloppes
+    """
     assert(L.shape == U.shape)
-    assert(data.shape[1]==L.shape[1])
-    
-    lb = np.zeros((data.shape[0], L.shape[0]), dtype=DTYPE) 
+    assert(data.shape[1] == L.shape[1])
+
+    lb = np.zeros((data.shape[0], L.shape[0]), dtype=DTYPE)
 
     if use_c:
         dtw_c.lb_keogh_distance(data, L, U, use_parallel, lb)
@@ -143,21 +208,18 @@ def lb_keogh_distance(data, L, U, use_c = False, use_parallel = False):
                     dif = 0
                     if ci > U[e, i]:
                         dif = ci - U[e, i]
-                    elif ci < L[e,i]:
+                    elif ci < L[e, i]:
                         dif = - ci + L[e, i]
-                    lb[d,e] =lb[d,e]+ dif *dif
-                lb[d,e]= np.sqrt(lb[d,e])
+                    lb[d, e] = lb[d, e] + dif * dif
+                lb[d, e] = np.sqrt(lb[d, e])
     return lb
-
-
-    
 
 
 def lb_keogh(s1, s2, window=None, max_dist=None,
              max_step=None, max_length_diff=None):
     """Lowerbound LB_KEOGH"""
     # TODO: This implementation slower than distance() in C
-    
+
     if window is None:
         window = max(len(s1), len(s2))
 
@@ -531,9 +593,11 @@ def distance_matrix(s, max_dist=None, max_length_diff=None,
 
     logger.info('Computing distances')
     if use_c and use_nogil:
-        logger.info("Compute distances in pure C (parallel={})".format(parallel))
+        logger.info(
+            "Compute distances in pure C (parallel={})".format(parallel))
         dist_opts['block'] = block
-        dists = dtw_c.distance_matrix_nogil(s, is_parallel=parallel, **dist_opts)
+        dists = dtw_c.distance_matrix_nogil(
+            s, is_parallel=parallel, **dist_opts)
 
     elif use_c and not use_nogil:
         logger.info("Compute distances in Python compiled C")
@@ -541,7 +605,8 @@ def distance_matrix(s, max_dist=None, max_length_diff=None,
             logger.info("Use parallel computation")
             idxs = _distance_matrix_idxs(block, len(s))
             with mp.Pool() as p:
-                dists = p.map(_distance_c_with_params, [(s[r], s[c], dist_opts) for c, r in zip(*idxs)])
+                dists = p.map(_distance_c_with_params, [
+                              (s[r], s[c], dist_opts) for c, r in zip(*idxs)])
         else:
             logger.info("Use serial computation")
             dist_opts['block'] = block
@@ -553,19 +618,22 @@ def distance_matrix(s, max_dist=None, max_length_diff=None,
             logger.info("Use parallel computation")
             idxs = _distance_matrix_idxs(block, len(s))
             with mp.Pool() as p:
-                dists = p.map(_distance_with_params, [(s[r], s[c], dist_opts) for c, r in zip(*idxs)])
+                dists = p.map(_distance_with_params, [
+                              (s[r], s[c], dist_opts) for c, r in zip(*idxs)])
         else:
             logger.info("Use serial computation")
             dists = distance_matrix_python(s, block=block, show_progress=show_progress,
                                            max_length_diff=max_length_diff, dist_opts=dist_opts)
 
     exp_length = _distance_matrix_length(block, len(s))
-    assert len(dists) == exp_length, "len(dists)={} != {}".format(len(dists), exp_length)
+    assert len(dists) == exp_length, "len(dists)={} != {}".format(
+        len(dists), exp_length)
     if compact:
         return dists
 
     # Create full matrix and fill upper triangular matrix with distance values (or only block if specified)
-    dists_matrix = distances_array_to_matrix(dists, nb_series=len(s), block=block)
+    dists_matrix = distances_array_to_matrix(
+        dists, nb_series=len(s), block=block)
 
     return dists_matrix
 
@@ -602,7 +670,8 @@ def distance_matrix_python(s, block=None, show_progress=False, max_length_diff=N
     if dist_opts is None:
         dist_opts = {}
     large_value = np.inf
-    dists = np.full((_distance_matrix_length(block, len(s)),), large_value, dtype=DTYPE)
+    dists = np.full((_distance_matrix_length(block, len(s)),),
+                    large_value, dtype=DTYPE)
     if block is None:
         it_r = range(len(s))
     else:
@@ -719,7 +788,8 @@ def warping_path_penalty(s1, s2, penalty_post=0, **kwargs):
         if path[i - 1][0] + 1 != path[i][0] or path[i - 1][1] + 1 != path[i][1]:
             dist += penalty_post
 
-        path_stepsize.append(paths[path[i][0] + 1, path[i][1] + 1] - paths[path[i - 1][0] + 1, path[i - 1][1] + 1])
+        path_stepsize.append(
+            paths[path[i][0] + 1, path[i][1] + 1] - paths[path[i - 1][0] + 1, path[i - 1][1] + 1])
 
     return [dist, path, path_stepsize, paths]
 

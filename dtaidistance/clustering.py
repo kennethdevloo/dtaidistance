@@ -16,7 +16,7 @@ from collections import deque
 import numpy as np
 
 from .util import SeriesContainer
-from  . import quantizer_c as qp
+from . import quantizer_c as qp
 #from  .dba_c import performDBA
 from enum import Enum
 import math
@@ -29,66 +29,63 @@ except ImportError:
 
 logger = logging.getLogger("be.kuleuven.dtai.distance")
 
-              
+
 def singleLinkageUpdater(dists, i1, i2):
-    
+
     for r in range(i2):
-        if r>i1:
-            dists[i1,r] = min(dists[i1, r], dists[r, i2])
-        elif r <i1:
-            dists[r,i1] = min(dists[r, i1], dists[r, i2])
+        if r > i1:
+            dists[i1, r] = min(dists[i1, r], dists[r, i2])
+        elif r < i1:
+            dists[r, i1] = min(dists[r, i1], dists[r, i2])
         dists[r, i2] = np.inf
-    
+
     for c in range(i2 + 1, dists.shape[0]):
-        if c>i1:
-            dists[i1,c] = min(dists[i1, c], dists[i2, c])
-        elif c >i1: 
-            dists[c,i1] = min(dists[c, i1], dists[i2, c])
+        if c > i1:
+            dists[i1, c] = min(dists[i1, c], dists[i2, c])
+        elif c > i1:
+            dists[c, i1] = min(dists[c, i1], dists[i2, c])
         dists[i2, c] = np.inf
 
 
 def completeLinkageUpdater(dists, i1, i2):
     for r in range(i2):
-        if r>i1:
-            dists[i1,r] = max(dists[i1, r], dists[r, i2])
-        elif r <i1:
-            dists[r,i1] = max(dists[r, i1], dists[r, i2])
+        if r > i1:
+            dists[i1, r] = max(dists[i1, r], dists[r, i2])
+        elif r < i1:
+            dists[r, i1] = max(dists[r, i1], dists[r, i2])
         dists[r, i2] = np.inf
-    
-    for c in range(i2 + 1, dists.shape[0]):
-        if c>i1:
-            dists[i1,c] = max(dists[i1, c], dists[i2, c])
-        elif c >i1: 
-            dists[c,i1] = max(dists[c, i1], dists[i2, c])
-        dists[i2, c] = np.inf
 
+    for c in range(i2 + 1, dists.shape[0]):
+        if c > i1:
+            dists[i1, c] = max(dists[i1, c], dists[i2, c])
+        elif c > i1:
+            dists[c, i1] = max(dists[c, i1], dists[i2, c])
+        dists[i2, c] = np.inf
 
 
 
 class QuantizerUsage(Enum):
     ONLY_APPROXIMATES = 1
-    TOP_K = 2  #means the lowest K values will be recalculated
+    TOP_K = 2  # means the lowest K values will be recalculated
     TOP_K_ONLY_AT_INITIALISATION = 3
 
 
 '''https://github.com/fpetitjean/DBA/tree/master/cython kmeans with DBA'''
 
 
-
 class KMeansTimeSeries:
 
-    def __init__(self, dists_fun, dists_options, n_clusters=0,n_iters=10,
-                 dba_params = {}, show_progress=True):
+    def __init__(self, dists_fun, dists_options, n_clusters=0, n_iters=10,
+                 dba_params={}, show_progress=True):
         self.dists_fun = dists_fun
         self.dists_options = dists_options
-        self.n_iters=n_iters
+        self.n_iters = n_iters
         self.n_clusters = min_clusters
         self.show_progress = show_progress
-        self._cluster_centers  = None
-        
-    def fit(self, series):
-      pass
+        self._cluster_centers = None
 
+    def fit(self, series):
+        pass
 
 
 class HierarchicalWithQuantizer:
@@ -117,7 +114,7 @@ class HierarchicalWithQuantizer:
 
     def __init__(self, dists_fun, dists_options, max_dist=np.inf, min_clusters=0,
                  merge_hook=None, order_hook=None, show_progress=True,
-                 dists_merger=None, quantizer_usage = QuantizerUsage.ONLY_APPROXIMATES, k = 10):
+                 dists_merger=None, quantizer_usage=QuantizerUsage.ONLY_APPROXIMATES, k=10):
         self.dists_fun = dists_fun
         self.dists_options = dists_options
         self.max_dist = max_dist
@@ -128,15 +125,13 @@ class HierarchicalWithQuantizer:
         self.dists_merger = dists_merger
         self.quantizer_usage = quantizer_usage
         self.k = k
-        self.quantizer=None
+        self.quantizer = None
 
     def trainQuantizer(self, data, pqParams):
-        self.quantizer = qp.ProductQuantizer(data,pqParams)
-
+        self.quantizer = qp.ProductQuantizer(data, pqParams)
 
     def setQuantizer(self, quantizer):
         self.quantizer = quantizer
-
 
     def fit(self, series):
         """Merge sequences.
@@ -165,20 +160,21 @@ class HierarchicalWithQuantizer:
             min_value = np.min(dists)
             min_idxs = np.argwhere(dists == min_value)
         elif self.quantizer_usage is QuantizerUsage.TOP_K or self.quantizer_usage is QuantizerUsage.TOP_K_ONLY_AT_INITIALISATION:
-            idxs = np.argpartition(dists, self.k, axis = None,)[0:self.k]
+            idxs = np.argpartition(dists, self.k, axis=None,)[0:self.k]
             min_idxs = np.zeros((self.k, 2), np.int)
             min_dists = np.zeros((self.k), np.float32)
 
             for i in range(self.k):
-                min_idxs[i,0] = int(idxs[i]/dists.shape[1])
-                min_idxs[i,1] = int(idxs[i]%dists.shape[1])
-                if not (dists[min_idxs[i,0], min_idxs[i,1]] == np.inf):
-                    dists[min_idxs[i,0], min_idxs[i,1]] = self.dists_fun(series[min_idxs[i,0], :],series[min_idxs[i,1], :],**self.dists_options)
-                    realVal[min_idxs[i,0], min_idxs[i,1]]=1
-                    min_dists[i] = dists[min_idxs[i,0], min_idxs[i,1]]
+                min_idxs[i, 0] = int(idxs[i]/dists.shape[1])
+                min_idxs[i, 1] = int(idxs[i] % dists.shape[1])
+                if not (dists[min_idxs[i, 0], min_idxs[i, 1]] == np.inf):
+                    dists[min_idxs[i, 0], min_idxs[i, 1]] = self.dists_fun(
+                        series[min_idxs[i, 0], :], series[min_idxs[i, 1], :], **self.dists_options)
+                    realVal[min_idxs[i, 0], min_idxs[i, 1]] = 1
+                    min_dists[i] = dists[min_idxs[i, 0], min_idxs[i, 1]]
             min_value = np.min(dists)
             min_idxs = np.argwhere(dists == min_value)
-            #print(min_idxs, min_value,min_minidxs, min_dists)  
+            #print(min_idxs, min_value,min_minidxs, min_dists)
 
         if self.order_hook:
             min_idx = self.order_hook(min_idxs)
@@ -230,29 +226,30 @@ class HierarchicalWithQuantizer:
                 min_idxs = np.argwhere(dists == min_value)
             elif self.quantizer_usage is QuantizerUsage.TOP_K:
                # print(dists)
-                idxs = np.argpartition(dists, self.k, axis = None)[0:self.k]
+                idxs = np.argpartition(dists, self.k, axis=None)[0:self.k]
                 min_idxs = np.zeros((self.k, 2), np.int)
                 min_dists = np.zeros((self.k), np.float32)
 
                 for i in range(self.k):
-                    min_idxs[i,0] = int(math.floor(idxs[i]/dists.shape[1]))
-                    min_idxs[i,1] = int(idxs[i]%dists.shape[1])
-                    if not (dists[min_idxs[i,0], min_idxs[i,1]] == np.inf):
-    #                    print(series[min_idxs[i,0], :],series[min_idxs[i,1], :])
-                        
-                        if realVal[min_idxs[i,0], min_idxs[i,1]] == 0:
-                            dists[min_idxs[i,0], min_idxs[i,1]] = self.dists_fun(series[min_idxs[i,0], :],series[min_idxs[i,1], :],**self.dists_options)
-                            realVal[min_idxs[i,0], min_idxs[i,1]]=1
-                        min_dists[i] = dists[min_idxs[i,0], min_idxs[i,1]]
-                        #print('dist',min_dists[i])
+                    min_idxs[i, 0] = int(math.floor(idxs[i]/dists.shape[1]))
+                    min_idxs[i, 1] = int(idxs[i] % dists.shape[1])
+                    if not (dists[min_idxs[i, 0], min_idxs[i, 1]] == np.inf):
+                        #                    print(series[min_idxs[i,0], :],series[min_idxs[i,1], :])
+
+                        if realVal[min_idxs[i, 0], min_idxs[i, 1]] == 0:
+                            dists[min_idxs[i, 0], min_idxs[i, 1]] = self.dists_fun(
+                                series[min_idxs[i, 0], :], series[min_idxs[i, 1], :], **self.dists_options)
+                            realVal[min_idxs[i, 0], min_idxs[i, 1]] = 1
+                        min_dists[i] = dists[min_idxs[i, 0], min_idxs[i, 1]]
+                        # print('dist',min_dists[i])
                     else:
                         min_dists[i] = np.inf
                 min_value = np.min(min_dists)
-                min_minidxs =  np.argwhere(min_dists == min_value)
+                min_minidxs = np.argwhere(min_dists == min_value)
                 min_idxs = min_idxs[min_minidxs, :]
-                min_idxs = min_idxs[0,:] 
+                min_idxs = min_idxs[0, :]
                 #print(min_idxs, min_value,min_minidxs, min_dists)
-                #print(dists)
+                # print(dists)
 
             if self.order_hook:
                 min_idx = self.order_hook(min_idxs)
@@ -296,13 +293,11 @@ class Hierarchical:
         self.dists_fun = dists_fun
         self.dists_options = dists_options
         self.max_dist = max_dist
-        self.min_clusters=min_clusters
+        self.min_clusters = min_clusters
         self.merge_hook = merge_hook
         self.order_hook = order_hook
         self.show_progress = show_progress
         self.dists_merger = dists_merger
-        
-
 
     def fit(self, series):
         """Merge sequences.
@@ -330,7 +325,7 @@ class Hierarchical:
             pbar = None
         # Hierarchical clustering (distance to prototype)
         while min_value <= self.max_dist and nb_clusters > self.min_clusters:
-       
+
             cnt_merge += 1
             i1, i2 = int(min_idx[0]), int(min_idx[1])
             if self.merge_hook:
@@ -374,10 +369,9 @@ class Hierarchical:
                 min_idx = self.order_hook(min_idxs)
             else:
                 min_idx = min_idxs[0, :]
-            nb_clusters=nb_clusters-1
+            nb_clusters = nb_clusters-1
         if pbar:
             pbar.update(dists.shape[0] - cnt_merge)
-        
 
         prototypes = []
         for i in range(len(series)):
@@ -454,26 +448,26 @@ class BaseTree:
         import matplotlib.cm as cmx
 
         if show_ts_label is True:
-            show_ts_label = lambda idx: str(int(idx))
+            def show_ts_label(idx): return str(int(idx))
         elif show_ts_label is False or show_ts_label is None:
-            show_ts_label = lambda idx: ""
+            def show_ts_label(idx): return ""
         elif callable(show_ts_label):
             pass
         elif hasattr(show_ts_label, "__getitem__"):
             show_ts_label_prev = show_ts_label
-            show_ts_label = lambda idx: show_ts_label_prev[idx]
+            def show_ts_label(idx): return show_ts_label_prev[idx]
         else:
             raise AttributeError("Unknown type for show_ts_label, expecting boolean, subscriptable or callable, "
                                  "got {}".format(type(show_ts_label)))
         if show_tr_label is True:
-            show_tr_label = lambda dist: "{:.2f}".format(dist)
+            def show_tr_label(dist): return "{:.2f}".format(dist)
         elif show_tr_label is False or show_tr_label is None:
-            show_tr_label = lambda dist: ""
+            def show_tr_label(dist): return ""
         elif callable(show_tr_label):
             pass
         elif hasattr(show_tr_label, "__getitem__"):
             show_tr_label_prev = show_tr_label
-            show_tr_label = lambda idx: show_tr_label_prev[idx]
+            def show_tr_label(idx): return show_tr_label_prev[idx]
         else:
             raise AttributeError("Unknown type for show_ts_label, expecting boolean, subscriptable or callable, "
                                  "got {}".format(type(show_ts_label)))
@@ -508,8 +502,10 @@ class BaseTree:
                 right_cnt = 0
             else:
                 # Inner node
-                child_left, child_right, dist, cnt2 = self.get_linkage(int(node))
-                child_left, child_right, cnt2 = int(child_left), int(child_right), int(cnt2)
+                child_left, child_right, dist, cnt2 = self.get_linkage(
+                    int(node))
+                child_left, child_right, cnt2 = int(
+                    child_left), int(child_right), int(cnt2)
                 if child_left == child_right:
                     raise Exception("Row in linkage contains same node as left and right child: {}-{}".
                                     format(child_left, child_right))
@@ -532,7 +528,8 @@ class BaseTree:
                 # if cnt != cnt2:
                 #     raise Exception("Count in linkage not correct")
             # print('c', node, c)
-            node_props[int(node)] = (cnt, curdepth, left_cnt, right_cnt, maxcumdist)
+            node_props[int(node)] = (
+                cnt, curdepth, left_cnt, right_cnt, maxcumdist)
             # print('count({},{}) = {}, {}, {}, {}'.format(node, height, cnt, maxheight, curdepth, maxcumdist))
             return cnt, maxheight, curdepth, maxcumdist
 
@@ -547,19 +544,23 @@ class BaseTree:
         ax[0].set_axis_off()
         # ax[0].set_xlim(left=0, right=curdept)
         ax[0].set_xlim(left=0, right=tr_left_margin + maxcumdist + 0.05)
-        ax[0].set_ylim(bottom=0, top=bottom_margin + ts_height * len(self.series) + top_margin)
+        ax[0].set_ylim(bottom=0, top=bottom_margin +
+                       ts_height * len(self.series) + top_margin)
         # ax[0].plot([0,1],[1,2])
         # ax[0].add_line(Line2D((0,1),(2,2), lw=2, color='black', axes=ax[0]))
 
         ax[1].set_axis_off()
-        ax[1].set_xlim(left=0, right=ts_left_margin + ts_sample_length * len(self.series[0]))
-        ax[1].set_ylim(bottom=0, top=bottom_margin + ts_height * len(self.series) + top_margin)
+        ax[1].set_xlim(left=0, right=ts_left_margin +
+                       ts_sample_length * len(self.series[0]))
+        ax[1].set_ylim(bottom=0, top=bottom_margin +
+                       ts_height * len(self.series) + top_margin)
 
         if type(cmap) == str:
             cmap = plt.get_cmap(cmap)
         else:
             pass
-        line_colors = cmx.ScalarMappable(norm=colors.Normalize(vmin=0, vmax=max_dist), cmap=cmap)
+        line_colors = cmx.ScalarMappable(
+            norm=colors.Normalize(vmin=0, vmax=max_dist), cmap=cmap)
 
         cnt_ts = 0
 
@@ -602,9 +603,12 @@ class BaseTree:
                     cy -= 1 / 2 * ts_height
                 # print('plot line', (px, cx), (py, cy))
                 # ax[0].add_line(Line2D((px, cx), (py, cy), lw=2, color='black', axes=ax[0]))
-                ax[0].add_line(Line2D((px, px), (py, cy), lw=1, color=color, axes=ax[0]))
-                ax[0].add_line(Line2D((px, cx), (cy, cy), lw=1, color=color, axes=ax[0]))
-                cnt_ts = plot_i(child_left, depth + 1, cnt_ts, prev_lcnt - crcntl, ax, True)
+                ax[0].add_line(Line2D((px, px), (py, cy),
+                                      lw=1, color=color, axes=ax[0]))
+                ax[0].add_line(Line2D((px, cx), (cy, cy),
+                                      lw=1, color=color, axes=ax[0]))
+                cnt_ts = plot_i(child_left, depth + 1, cnt_ts,
+                                prev_lcnt - crcntl, ax, True)
 
                 # Right
                 ccnt, cdepth, clcntr, crcntr, crcdist = node_props[child_right]
@@ -616,9 +620,12 @@ class BaseTree:
                     cy += 1 / 2 * ts_height
                 # print('plot line', (px, cx), (py, cy))
                 # ax[0].add_line(Line2D((px, cx), (py, cy), lw=2, color='black', axes=ax[0]))
-                ax[0].add_line(Line2D((px, px), (py, cy), lw=1, color=color, axes=ax[0]))
-                ax[0].add_line(Line2D((px, cx), (cy, cy), lw=1, color=color, axes=ax[0]))
-                cnt_ts = plot_i(child_right, depth + 1, cnt_ts, prev_lcnt + clcntr, ax, False)
+                ax[0].add_line(Line2D((px, px), (py, cy),
+                                      lw=1, color=color, axes=ax[0]))
+                ax[0].add_line(Line2D((px, cx), (cy, cy),
+                                      lw=1, color=color, axes=ax[0]))
+                cnt_ts = plot_i(child_right, depth + 1, cnt_ts,
+                                prev_lcnt + clcntr, ax, False)
             return cnt_ts
 
         plot_i(self.maxnode, 0, 0, node_props[self.maxnode][2], ax, True)
@@ -634,7 +641,8 @@ class BaseTree:
 
     def to_dot(self):
         child_left, child_right, dist, cnt = self.get_linkage(self.maxnode)
-        node_deque = deque([(self.maxnode, child_left), (self.maxnode, child_right)])
+        node_deque = deque([(self.maxnode, child_left),
+                            (self.maxnode, child_right)])
         # print(node_deque)
         s = ["digraph tree {"]
         while len(node_deque) > 0:
@@ -678,8 +686,10 @@ class HierarchicalTree(BaseTree):
             new_idx = len(self.series) + len(self.linkage)
             # print('adding to linkage: ', new_nodes[from_idx], new_nodes[to_idx], distance, 0)
             if new_nodes[from_idx] is None:
-                raise Exception('Trying to merge series that is already merged')
-            self.linkage.append((new_nodes[from_idx], new_nodes[to_idx], distance, 0))
+                raise Exception(
+                    'Trying to merge series that is already merged')
+            self.linkage.append(
+                (new_nodes[from_idx], new_nodes[to_idx], distance, 0))
             new_nodes[to_idx] = new_idx
             new_nodes[from_idx] = None
             if old_merge_hook:
@@ -717,7 +727,8 @@ class LinkageTree(BaseTree):
         try:
             from scipy.cluster.hierarchy import linkage
         except ImportError:
-            logger.error("The LinkageTree class requires the scipy package to be installed.")
+            logger.error(
+                "The LinkageTree class requires the scipy package to be installed.")
             self.linkage = None
             linkage = None
             return
@@ -728,7 +739,8 @@ class LinkageTree(BaseTree):
             dists_cond[idx:idx + len(series) - r - 1] = dists[r, r + 1:]
             idx += len(series) - r - 1
 
-        self.linkage = linkage(dists_cond, method=self.method, metric='euclidean',)
+        self.linkage = linkage(
+            dists_cond, method=self.method, metric='euclidean',)
 
     def _size_cond(self, size):
         n = int(size)

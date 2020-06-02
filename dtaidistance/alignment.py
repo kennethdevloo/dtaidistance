@@ -18,7 +18,6 @@ from .dtw import distance
 from .dp import dp
 
 
-
 class Needleman_wunsch_default():
     def __init__(self):
         pass
@@ -39,29 +38,29 @@ class Needleman_wunsch_default():
             d = 1  # mismatch
         return d, d_indel
 
+
 class SparseSubstitutionMatrix():
-    def __init__(self, data, distParams = {}):
-        #note that in PQ case, the data consists off all the centres
-        self.data =data #codebooks
-        self.distances = np.full((data.shape[0], data.shape[0]),np.inf)
+    def __init__(self, data, distParams={}):
+        # note that in PQ case, the data consists off all the centres
+        self.data = data  # codebooks
+        self.distances = np.full((data.shape[0], data.shape[0]), np.inf)
         self.distParams = distParams
 
     def getDistance(self, el1, el2):
-        if el1 ==el2:
-            return 0,0
+        if el1 == el2:
+            return 0, 0
         low = int(min(el1, el2))
         high = int(max(el1, el2))
         if self.distances[low, high] == np.inf:
-            self.distances[low, high]=distance(self.data[low,:], self.data[high,:], 
-            **self.distParams, use_c=True)
+            self.distances[low, high] = distance(self.data[low, :], self.data[high, :],
+                                                 **self.distParams, use_c=True)
 
         d = (self.distances[low, high])**2
 
-        #encourage teh flexibility here by not using a penalty
-        d_indel=d
+        # encourage teh flexibility here by not using a penalty
+        d_indel = d
         return d, d_indel
-        
-        
+
 
 def needleman_wunsch(s1, s2, window=None, max_dist=None,
                      max_step=None, max_length_diff=None, psi=None,
@@ -88,12 +87,11 @@ def needleman_wunsch(s1, s2, window=None, max_dist=None,
 
     """
     value, matrix = dp(s1, s2,
-                    substitutionMatrix, border=_needleman_wunsch_border,
-                    penalty=0, window=window, max_dist=max_dist,
-                    max_step=max_step, max_length_diff=max_length_diff, psi=psi)
+                       substitutionMatrix, border=_needleman_wunsch_border,
+                       penalty=0, window=window, max_dist=max_dist,
+                       max_step=max_step, max_length_diff=max_length_diff, psi=psi)
     matrix = -matrix
     return value, matrix
-
 
 
 
@@ -122,11 +120,12 @@ def best_alignment(paths, s1=None, s2=None, gap="-", order=None):
     p = []
     if paths[i, j] != -1:
         p.append((i - 1, j - 1))
-    ops = [(-1,-1), (-1,-0), (-0,-1)]
+    ops = [(-1, -1), (-1, -0), (-0, -1)]
     if order is None:
         order = [0, 1, 2]
     while i > 0 and j > 0:
-        prev_vals = [paths[i + ops[orderi][0], j + ops[orderi][1]] for orderi in order]
+        prev_vals = [paths[i + ops[orderi][0], j + ops[orderi][1]]
+                     for orderi in order]
         # c = np.argmax([paths[i - 1, j - 1], paths[i - 1, j], paths[i, j - 1]])
         c = int(np.argmax(prev_vals))
         opi, opj = ops[order[c]]
